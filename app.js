@@ -152,13 +152,30 @@ async function getMoviesList() {
 
 let dbAvailable = null;
 async function initDB() {
-    dbAvailable = await db.connect();
-    console.log(dbAvailable.success ? "DB connection is available." : `DB connection failed. {${dbAvailable.message}}`);
+        return new Promise(async (resolve, reject) => {
+            try {
+                dbAvailable = await db.connect();
+                resolve({success:true, message:dbAvailable.success ? "DB connection is available." : `DB connection failed. {${dbAvailable.message}}`});
+            }
+            catch(e) {
+                reject({success:false, message:e.message})
+            }
+        })
 }
 
-initDB();
+initDB()
+    .then(result => {
+        if (result.success) {
+            const appPort = config.get("app.port") || process.env.DEFAULT_APP_PORT;
+            app.listen(appPort, async () => {
+                console.log(`Server is listening on port ${appPort}`);
+            })
+        }
+        else {
+            console.log(result.message);
+        }
+    })
+    .catch(e => {
+        console.log(e);
+    }) 
 
-const appPort = config.get("app.port") || process.env.DEFAULT_APP_PORT;
-app.listen(appPort, async () => {
-    console.log(`Server is listening on port ${appPort}`);
-})
