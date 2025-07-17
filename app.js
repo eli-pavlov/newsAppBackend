@@ -36,10 +36,10 @@ const db = require('./api/db');
 app.get('/db-available', async (req, res) => {
     try {
         if (dbAvailable.success)
-            res.status(200).json(result)
+            res.status(200).json(dbAvailable)
         else {
-            result.message = result.message?? "Database is not available.";
-            res.status(500).json(result)
+            dbAvailable.message = dbAvailable.message?? "Database is not available.";
+            res.status(500).json(dbAvailable)
         }
     }
     catch (e) {
