@@ -16,14 +16,10 @@ class MONGO_DB {
             else
                 dbUri = `mongodb://${dbHost}:${config.get("db_mongo.port")}`;
             
-            console.log(dbUri);
             this.client = new MongoClient(dbUri);
-            console.log("11111");
             await this.client.connect();
-            console.log("22222");
 
             await this.initTables(false);
-            console.log("3333");
 
             return { success: true }
         }
