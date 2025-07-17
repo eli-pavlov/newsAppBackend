@@ -12,7 +12,7 @@ class MONGO_DB {
             const dbHost = process.env.MONGO_HOST || config.get("db_mongo.host");
             let dbUri = null;
             if (dbHost.startsWith('mongodb'))
-                dbUri = `${dbHost}:${config.get("db_mongo.port")}`;
+                dbUri = `${dbHost}`;
             else
                 dbUri = `mongodb://${dbHost}:${config.get("db_mongo.port")}`;
             
