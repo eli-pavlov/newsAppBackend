@@ -153,7 +153,7 @@ async function getMoviesList() {
 let dbAvailable = null;
 async function initDB() {
     dbAvailable = await db.connect();
-    console.log(dbAvailable.success ? "DB connection is available." : "DB connection failed.");
+    console.log(dbAvailable.success ? "DB connection is available." : `DB connection failed. {${dbAvailable.message}}`);
 }
 
 initDB();
