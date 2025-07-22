@@ -1,5 +1,5 @@
 const { DataTypes } = require('sequelize');
-const seqClient = require('../api/sequelizeClient');
+const seqClient = require('../services/sequelizeClient');
 
 if (!seqClient)
     return;

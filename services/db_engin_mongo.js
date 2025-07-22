@@ -131,7 +131,7 @@ class MONGO_DB {
                 const correctPassword = user.password ? await this.comparePassword(password, user.password) : false;
 
                 if (correctPassword) {
-                    return { success: true }
+                    return { success: true, data:user }
                 }
             }
             return { success: false };
@@ -171,6 +171,51 @@ class MONGO_DB {
             }
 
             return { success: true, data: data };
+        }
+        catch (e) {
+            return { success: false, message: e.message };
+        }
+    }
+
+    async getAllUsers() {
+        try {
+            const users = await this.db.collection('users').find({}).toArray();
+
+            return { success: true, data:users }
+        }
+        catch (e) {
+            return { success: false, message: e.message };
+        }
+    }
+
+    async addUser(data) {
+        try {
+            // check if email exist
+            const user = await this.db.collection('users').findOne(
+                { email: data.email }
+            );
+
+            if (user)
+                return { success: false, message:"Email already exist in system." }
+
+            data.password = await this.hashPassword(data.password);
+
+            await this.insertRecord('users', data);
+
+            return { success: true, data:data }
+        }
+        catch (e) {
+            return { success: false, message: e.message };
+        }
+    }
+
+    async deleteUser(email) {
+        try {
+            await this.db.collection('users').deleteOne(
+                { email: email }
+            );
+
+            return { success: true }
         }
         catch (e) {
             return { success: false, message: e.message };

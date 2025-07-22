@@ -1,13 +1,19 @@
 const express = require("express");
+const config = require('config');  // use default.json in dev mode and production.json in build mode.
+const dotenv = require('dotenv').config();  // add all variables defined in .env file to process.env (usage: process.env.VAR_NAME)
+const dbRouter = require("./routes/db");
+const authRouter = require("./routes/auth");
+const settingsRouter = require("./routes/settings");
+const userRouter = require("./routes/user");
+const { initDB } = require('./services/db');
+
 const cors = require('cors');
-const fs = require('fs/promises');
 const path = require('path');
 
 const app = express()
-app.use(express.json())
-// Set 'public' as the static public folder
-app.use(express.static(path.join(__dirname, 'public')));
 
+app.use(express.json())
+app.use(express.static(path.join(__dirname, 'public')));
 app.use(cors({
     origin: function (origin, callback) {
         // Allow requests with no origin (like curl or Postman)
@@ -23,145 +29,16 @@ app.use(cors({
     exposedHeaders: ['x-access-token', 'x-refresh-token'],
 })); // Enable CORS for all origins
 
-const config = require('config');  // use default.json i dev mode and production.json in build mode.
-const dotenv = require('dotenv');  // add all variables defined in .env file to process.env (usage: process.env.VAR_NAME)
-dotenv.config();
-
-const db = require('./api/db');
-
-// const authenticate = require('./middleware/auth');
-
 // *********** ROUTES *************************
+app.use('/', settingsRouter);
+app.use('/', authRouter);
+app.use('/', dbRouter);
+app.use('/', userRouter);
 
-app.get('/db-available', async (req, res) => {
-    try {
-        if (dbAvailable.success)
-            res.status(200).json(dbAvailable)
-        else {
-            dbAvailable.message = dbAvailable.message?? "Database is not available.";
-            res.status(500).json(dbAvailable)
-        }
-    }
-    catch (e) {
-        res.status(500).json({success:true, message:e.message})
-    }
-})
-
-app.post('/login', async (req, res) => {
-    try {
-        const { email, password } = req.body;
-
-        const result = await db.login(email, password);
-        
-        if (result.success)
-            res.status(200).json(result)
-        else {
-            result.message = result.message?? "Wrong email or password."; 
-            res.status(500).json(result)
-        }
-    }
-    catch (e) {
-        res.status(500).json({success:false, message:e.message})
-    }
-})
-
-app.get('/settings', async (req, res) => {
-    try {
-        const result = await db.getSettings();
-        
-        // get the movies files list from server folder
-        const folderMovies = await getMoviesList();
-
-        if (result.success) {
-            // get the saved movies list
-            const settingsMovies = result.data.movies.map(item => item.file_name);
-
-            // get the movies files list that were removed from server folder since last save 
-            const missingFiles = settingsMovies.filter(f => !folderMovies.includes(f));
-
-            // find the new files that added to server folder
-            const newFiles = folderMovies.filter(f => !settingsMovies.includes(f));
-
-            // create the updated movies list 
-            // get only the saved files that are still exists in server folder (ignore the removed files)
-            let finalSettingsMoviesList = result.data.movies.filter(item => !missingFiles.includes(item.file_name));
-
-            // add the new movies files
-            newFiles.forEach(f => {
-                finalSettingsMoviesList.push({
-                    file_name:f, 
-                });
-            })
-
-            // add the full url for each movie file
-            finalSettingsMoviesList.forEach(f => {
-                f.url = `${req.protocol}://${req.get('host')}/assets/movies/${f.file_name}`
-            })
-
-            result.data.movies = finalSettingsMoviesList;
-            res.status(200).json(result)
-        }
-        else {
-            // in case there is no saved settings, return also the server movies files
-            const folderFilesList = folderMovies.map(f => ({
-                file_name:f, 
-                url:`${req.protocol}://${req.get('host')}/assets/movies/${f}`,
-            }));
-
-            result.movies = folderFilesList;
-            result.message = result.message?? "Get settings failed.";
-            res.status(500).json(result)
-        }
-    }
-    catch (e) {
-        res.status(500).json({success:true, message:e.message})
-    }
-})
-
-app.post('/settings', async (req, res) => {
-    try {
-        const data = req.body;
-        
-        const result = await db.saveSettings(data);
-        
-        if (result.success)
-            res.status(200).json(result)
-        else
-            res.status(500).json(result)
-    }
-    catch (e) {
-        res.status(500).json({success:true, message:e.message})
-    }
-})
-
-async function getMoviesList() {
-    const moviesFolder = 'assets/movies';
-    const folderPath = path.join(__dirname, `public/${moviesFolder}`);
-
-    try {
-        const files = await fs.readdir(folderPath);
-        // const output = files.map(f => { return {file_name:f, url:`${serverUrl}/${moviesFolder}/${f}`} })
-        return files;
-    }
-    catch (e) {
-        console.log(e.message);
-
-        return [];
-    }
-}
-
-let dbAvailable = null;
-async function initDB() {
-        return new Promise(async (resolve, reject) => {
-            try {
-                dbAvailable = await db.connect();
-                resolve({success:true, message:dbAvailable.success ? "DB connection is available." : `DB connection failed. {${dbAvailable.message}}`});
-            }
-            catch(e) {
-                reject({success:false, message:e.message})
-            }
-        })
-}
+// fallback for all urls
+app.use((req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 initDB()
     .then(result => {
@@ -177,5 +54,4 @@ initDB()
     })
     .catch(e => {
         console.log(e);
-    }) 
-
+    })
