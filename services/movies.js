@@ -2,7 +2,7 @@ const fs = require('fs/promises');
 const path = require('path');
 
 module.exports.getMoviesList = async function () {
-    const moviesFolder = 'assets/movies';
+    const moviesFolder = 'movies';
     const folderPath = path.join(__dirname, `../public/${moviesFolder}`);
 
     try {

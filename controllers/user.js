@@ -45,8 +45,9 @@ class userController {
 
             const result = await db.deleteUser(email);
 
-            if (result.success)
+            if (result.success) {
                 res.status(200).json(result)
+            }
             else {
                 result.message = result.message ?? "Delete user failed.";
                 res.status(500).json(result)

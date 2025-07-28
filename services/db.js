@@ -9,10 +9,6 @@ switch (process.env.DB_TYPE) {
     case 'POSTGRES':
         db_engin_class = require('./db_engin_postgres')
         break;
-
-    case 'LOCALSTORAGE':
-        db_engin_class = require('./db_engin_ls')
-        break;
 }
 const db = new db_engin_class();
 

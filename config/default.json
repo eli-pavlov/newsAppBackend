@@ -2,21 +2,13 @@
     "app": {
         "port":"3000"
     },
-    "db_pg": {
-        "host":"localhost",
-        "port": "5432",
-        "database":"postgres",
-        "username":"postgres",
-        "password":"postgres"
+    "postgres_local": {
+        "uri":"postgres://postgres:postgres@localhost:5432/news_app"
     },
-    "db_mongo_local": {
-        "host":"localhost",
-        "port": "27017",
-        "name": "news_app"
+    "mongo_local": {
+        "uri":"mongodb://localhost:27017/newa_app"
     },
-    "db_mongo": {
-        "host":"mongodb+srv://gil190267:fi8QnRnzoF1QQzZc@cluster0.zrqfwsi.mongodb.net/",
-        "port": "27017",
-        "name": "news_app"
+    "mongo_atlas": {
+        "uri":"mongodb+srv://gil190267:fi8QnRnzoF1QQzZc@cluster0.zrqfwsi.mongodb.net/news_app"
     }
 }

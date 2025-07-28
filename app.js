@@ -6,6 +6,7 @@ const authRouter = require("./routes/auth");
 const settingsRouter = require("./routes/settings");
 const userRouter = require("./routes/user");
 const { initDB } = require('./services/db');
+const authMiddleware = require('./middleware/authToken')
 
 const cors = require('cors');
 const path = require('path');
@@ -13,7 +14,10 @@ const path = require('path');
 const app = express()
 
 app.use(express.json())
+
 app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public', 'app')));
+
 app.use(cors({
     origin: function (origin, callback) {
         // Allow requests with no origin (like curl or Postman)
@@ -30,14 +34,14 @@ app.use(cors({
 })); // Enable CORS for all origins
 
 // *********** ROUTES *************************
-app.use('/', settingsRouter);
-app.use('/', authRouter);
-app.use('/', dbRouter);
-app.use('/', userRouter);
+app.use('/settings', authMiddleware.verifyAuthToken, settingsRouter);
+app.use('/auth', authRouter);
+app.use('/db', dbRouter);
+app.use('/user', authMiddleware.verifyAuthTokenAndAdmin, userRouter);
 
-// fallback for all urls
+// fallback for all routes
 app.use((req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    res.sendFile(path.join(__dirname, 'public', 'app', 'index.html'));
 });
 
 initDB()

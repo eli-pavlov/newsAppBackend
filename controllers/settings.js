@@ -1,14 +1,13 @@
 const { db } = require('../services/db');
 const { getMoviesList } = require('../services/movies')
-// const auth = require("../middleware/auth");
 
 class settingsController {
     constructor() {
     }
 
-    async getSettings(req, res) {
+    static async getSettingsFromDB(req, user) {
         try {
-            const result = await db.getSettings();
+            const result = await db.getSettings(user);
 
             // get the movies files list from server folder
             const folderMovies = await getMoviesList();
@@ -36,26 +35,54 @@ class settingsController {
 
                 // add the full url for each movie file
                 finalSettingsMoviesList.forEach(f => {
-                    f.url = `${req.protocol}://${req.get('host')}/assets/movies/${f.file_name}`
+                    f.url = `${req.protocol}://${req.get('host')}/${process.env.MOVIES_FOLDER}/${f.file_name}`
                 })
 
                 result.data.movies = finalSettingsMoviesList;
-                res.status(200).json(result)
+
+                return result;
             }
             else {
                 // in case there is no saved settings, return also the server movies files
                 const folderFilesList = folderMovies.map(f => ({
                     file_name: f,
-                    url: `${req.protocol}://${req.get('host')}/assets/movies/${f}`,
+                    url: `${req.protocol}://${req.get('host')}/${process.env.MOVIES_FOLDER}/${f}`,
                 }));
 
                 result.movies = folderFilesList;
                 result.message = result.message ?? "Get settings failed.";
-                res.status(500).json(result)
+
+                return result;
             }
         }
         catch (e) {
-            res.status(500).json({ success: true, message: e.message })
+            return { success:false, message: e.message};
+        }
+    }
+
+    async getSettings(req, res) {
+        const user = req.user?? null; 
+
+        const result = await settingsController.getSettingsFromDB(req, user);
+
+        if (result.success) {
+            res.status(200).json(result)
+        }
+        else {
+            res.status(500).json(result)
+        }
+    }
+
+    async getUserSettings(req, res) {
+        const user = req.body; 
+
+        const result = await settingsController.getSettingsFromDB(req, user);
+
+        if (result.success) {
+            res.status(200).json(result)
+        }
+        else {
+            res.status(500).json(result)
         }
     }
 
@@ -63,7 +90,7 @@ class settingsController {
         try {
             const data = req.body;
 
-            const result = await db.saveSettings(data);
+            const result = await db.saveSettings(data, (req.user?? null));
 
             if (result.success)
                 res.status(200).json(result)

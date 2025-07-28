@@ -1,4 +1,4 @@
-const { MongoClient, ObjectId } = require("mongodb");
+const { MongoClient } = require("mongodb");
 const bcrypt = require('bcrypt');
 const config = require('config');
 
@@ -9,17 +9,13 @@ class MONGO_DB {
 
     async connect() {
         try {
-            const dbHost = process.env.MONGO_HOST || config.get("db_mongo.host");
-            let dbUri = null;
-            if (dbHost.startsWith('mongodb'))
-                dbUri = `${dbHost}`;
-            else
-                dbUri = `mongodb://${dbHost}:${config.get("db_mongo.port")}`;
+            const configMongoUri = config.get(`${process.env.DB_CONFIG_KEY}.uri`); 
+            const dbUri = process.env.MONGO_URI || configMongoUri;
             
             this.client = new MongoClient(dbUri);
             await this.client.connect();
 
-            await this.initTables(false);
+            console.log(await this.initTables(false));
 
             return { success: true }
         }
@@ -30,16 +26,15 @@ class MONGO_DB {
 
     async initTables(recreateTables) {
         try {
-            const dbName = process.env.MONGO_DB_NAME || config.get("db_mongo.name")
-            this.db = this.client.db(dbName);
+            this.db = this.client.db();
 
             if (recreateTables) {
                 await this.removeCollection('users');
                 await this.removeCollection('settings');
             }
 
-            await this.createCollection('users');
-            await this.createCollection('settings');
+            console.log(await this.createCollection('users'));
+            console.log(await this.createCollection('settings'));
 
             if (recreateTables)
                 await this.insertData();
@@ -54,6 +49,7 @@ class MONGO_DB {
     async createCollection(collectionName) {
         try {
             const collection = this.db.createCollection(collectionName);
+        console.log(collection);
 
             return { success: true, message: `Collection ${collectionName} was created.` }
         }
@@ -77,8 +73,10 @@ class MONGO_DB {
         const password = await this.hashPassword("1234");
 
         const adminData = {
+            'name': 'Admin',
             'email': 'admin@admin.com',
-            'password': password
+            'password': password,
+            'role': 'Admin'
         };
 
         await this.insertRecord("users", adminData);
@@ -141,36 +139,58 @@ class MONGO_DB {
         }
     }
 
-    async getSettings() {
+    async getSettings(user) {
         try {
+            if (!user || !user._id)
+                return { success: false, message: "Unknown user." }
+
             const result = await this.db.collection('settings').findOne(
+                {user_id: user._id}
             );
 
             if (result) {
-                if (result?.data) {
+                if (result?.data)
                     return { success: true, data: result.data }
-                }
             }
-            return { success: false};
+
+            return { success: false, message: "User settings not found." }
         }
         catch (e) {
             return { success: false, message: e.message };
         }
     }
 
-    async saveSettings(data) {
+    async saveSettings(data, user) {
         try {
-            const firstRecord = await this.db.collection('settings').findOne(
+            if (!user || !user._id)
+                return { success: false, message: "Unknown user." }
+
+            const result = await this.db.collection('settings').findOne(
+                {user_id: user._id}
             );
 
-            if (firstRecord) {
-                await this.updateRecord('settings', firstRecord._id, 'data', data);
+            if (result) {
+                await this.updateRecord('settings', result._id, 'data', data);
             }
             else {
-                await this.insertRecord('settings', {data: data});
+                const user_id = user._id;
+                await this.insertRecord('settings', {user_id, data});
             }
 
             return { success: true, data: data };
+        }
+        catch (e) {
+            return { success: false, message: e.message };
+        }
+    }
+
+    async deleteSettings(userId) {
+        try {
+            await this.db.collection('settings').deleteOne(
+                { user_id: userId }
+            );
+
+            return { success: true }
         }
         catch (e) {
             return { success: false, message: e.message };
@@ -211,9 +231,15 @@ class MONGO_DB {
 
     async deleteUser(email) {
         try {
+            const user = await this.db.collection('users').findOne({ email: email });
+            
+            const userId = user._id.toString();
+
             await this.db.collection('users').deleteOne(
                 { email: email }
             );
+
+            await this.deleteSettings( userId );
 
             return { success: true }
         }
