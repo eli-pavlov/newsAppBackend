@@ -38,6 +38,22 @@ app.use('/auth', authRouter);
 app.use('/db', dbRouter);
 app.use('/user', authMiddleware.verifyAuthTokenAndAdmin, userRouter);
 
+app.get('/config', (req, res) => {
+    try {
+        let appEnvVariables = {};
+
+        Object.keys(process.env).forEach(e => {
+            if (e.toUpperCase().startsWith('VITE_'))
+                appEnvVariables[e] = process.env[e];
+        })
+
+        res.status(200).json({success:true, data:appEnvVariables});
+    }
+    catch (e) {
+        res.status(500).json({ success: false, message: e.message, data:{} })
+    }
+})
+
 // fallback for all routes
 app.use((req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'app', 'index.html'));
