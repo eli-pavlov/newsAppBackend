@@ -2,13 +2,19 @@
     "app": {
         "port":"3000"
     },
+    
     "postgres_local": {
         "uri":"postgres://postgres:postgres@localhost:5432/news_app"
     },
+
     "mongo_local": {
         "uri":"mongodb://localhost:27017/newa_app"
     },
     "mongo_atlas": {
         "uri":"mongodb+srv://gil190267:fi8QnRnzoF1QQzZc@cluster0.zrqfwsi.mongodb.net/news_app"
+    },
+
+    "mongoose_local": {
+        "uri":"mongodb://localhost:27017/test"
     }
 }

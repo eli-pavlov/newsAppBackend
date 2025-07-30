@@ -12,12 +12,14 @@ class authController {
     async login(req, res) {
         try {
             const { email, password } = req.body;
+            
 
             const result = await db.login(email, password);
 
             if (result.success) {
                 const user = result.data;
                 const secret = process.env.JWT_SECRET_KEY;
+
                 const auth_token = jwt.sign(user, secret, { expiresIn: process.env.JWT_EXPIRATION_PERIOD });
 
                 result.tokens = {

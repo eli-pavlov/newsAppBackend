@@ -7,7 +7,6 @@ const settingsRouter = require("./routes/settings");
 const userRouter = require("./routes/user");
 const { initDB } = require('./services/db');
 const authMiddleware = require('./middleware/authToken')
-
 const cors = require('cors');
 const path = require('path');
 

@@ -6,6 +6,10 @@ switch (process.env.DB_TYPE) {
         db_engin_class = require('./db_engin_mongo')
         break;
 
+    case 'MONGOOSE':
+        db_engin_class = require('./db_engine_mongoose')
+        break;
+
     case 'POSTGRES':
         db_engin_class = require('./db_engin_postgres')
         break;
