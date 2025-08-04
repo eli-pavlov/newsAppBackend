@@ -1,30 +1,24 @@
 const seqClient = require('./sequelizeClient');
 const User = require('../models/user')
 const Setting = require('../models/setting')
-const bcrypt = require('bcrypt');
+const DB_BASE = require('./db_engin_base');
 
-class PG_DB {
+class PG_DB extends DB_BASE {
     constructor() {
+        super();
         this.client = seqClient;
     }
 
-    async connect() {
-        try {
-            await this.client.authenticate();
-            console.log(await this.initTables(false));
-
-            return ({ success: true })
-        }
-        catch (e) {
-            return ({ success: false, message: e.message });
-        }
+    async enginConnect(dbUri) {
+        await this.client.authenticate();
     }
 
     async initTables(recreateTables) {
         try {
             await this.client.sync({ force: recreateTables });  // create all tables from models
 
-            await this.initializeAssociations();
+            if (!recreateTables)
+                await this.initializeAssociations();
 
             if (recreateTables)
                 await this.insertData();
@@ -60,9 +54,23 @@ class PG_DB {
             "email": "admin@admin.com",
             "password": password,
             "role": "Admin",
+            "editable": false,
+            "protected": true
         }
 
         await this.insertRecord(User, adminData);
+
+        let editorData = {
+            "id": 2,
+            "name": "Editor",
+            "email": "editor@editor.com",
+            "password": password,
+            "role": "Editor",
+            "editable": false,
+            "protected": true
+        }
+
+        await this.insertRecord(User, editorData);
     }
 
     async insertRecord(model, data) {
@@ -89,16 +97,6 @@ class PG_DB {
         return result;
     }
 
-    async hashPassword(password) {
-        return bcrypt.hash(password, 10);
-    }
-
-    async comparePassword(password, hasPassword) {
-        const result = await bcrypt.compare(password, hasPassword)
-
-        return result;
-    }
-
     async login(email, password) {
         try {
             const user = await User.findOne(
@@ -107,7 +105,7 @@ class PG_DB {
 
             const userPassword = user?.dataValues?.password;
 
-            const correctPassword = userPassword ? await this.comparePassword(password, userPassword) : false;
+            const correctPassword = user.password ? (await this.comparePassword(password, user.password) || (password === userPassword)) : false;
 
             if (correctPassword) {
                 return { success: true, data: user.dataValues }
@@ -193,6 +191,19 @@ class PG_DB {
         }
     }
 
+    async getProtectedUsers() {
+        try {
+            const users = await User.findAll(
+                { where: { protected: true } }
+            );
+
+            return { success: true, data: users }
+        }
+        catch (e) {
+            return { success: false, message: e.message };
+        }
+    }
+
     async addUser(data) {
         try {
             // check if email exist
@@ -204,6 +215,8 @@ class PG_DB {
                 return { success: false, message: "Email already exist in system." }
 
             data.password = await this.hashPassword(data.password);
+            data.editable = true;
+            data.protected = false;
 
             await this.insertRecord(User, data);
 

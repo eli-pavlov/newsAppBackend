@@ -4,7 +4,7 @@ const config = require("config");
 let seqClient = null;
 
 try {
-    const configPostgresUri = config.get(
+    const configDbUri = config.get(
         `${process.env.DB_CONFIG_KEY}.uri`,
         {
             // dialectOptions: {
@@ -16,7 +16,7 @@ try {
         }
     );
 
-    seqClient = new Sequelize(process.env.POSTGRES_URI || configPostgresUri);
+    seqClient = new Sequelize(process.env.DB_URI || configDbUri);
 }
 catch (e) {
     console.error(e.message);

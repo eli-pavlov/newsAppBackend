@@ -4,7 +4,7 @@
     },
     
     "postgres_local": {
-        "uri":"postgres://postgres:postgres@localhost:5432/news_app"
+        "uri":"postgres://postgres:postgres@localhost:5432/postgres"
     },
 
     "mongo_local": {
@@ -15,6 +15,10 @@
     },
 
     "mongoose_local": {
-        "uri":"mongodb://localhost:27017/test"
+        "uri":"mongodb://localhost:27017/news_app"
+    },
+
+    "mysql_aiven": {
+        "uri":""
     }
 }

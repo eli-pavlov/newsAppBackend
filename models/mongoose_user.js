@@ -19,6 +19,14 @@ const UserSchema = new Schema(
             enum: { values:['Admin', 'Editor'], message:'Invalid role'},
             required: true
         },
+        editable: {
+            type: Boolean,
+            required: false
+        },
+        protected: {
+            type: Boolean,
+            required: true
+        },
     },
 );
     

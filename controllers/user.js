@@ -21,6 +21,22 @@ class userController {
         }
     }
 
+    async protected(req, res) {
+        try {
+            const result = await db.getProtectedUsers();
+
+            if (result.success)
+                res.status(200).json(result)
+            else {
+                result.message = result.message ?? "Get users failed.";
+                res.status(500).json(result)
+            }
+        }
+        catch (e) {
+            res.status(500).json({ success: false, message: e.message })
+        }
+    }
+
     async add(req, res) {
         try {
             const data = req.body;

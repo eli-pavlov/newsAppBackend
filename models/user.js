@@ -28,6 +28,14 @@ const User = seqClient.define(
         type: DataTypes.STRING,
         allowNull: false,
       },
+      editable: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+      },
+      protected: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+      },
     },
     {
       // Other model options go here

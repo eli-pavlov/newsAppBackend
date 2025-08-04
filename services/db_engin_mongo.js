@@ -1,27 +1,16 @@
 const { MongoClient } = require("mongodb");
-const bcrypt = require('bcrypt');
-const config = require('config');
+const DB_BASE = require('./db_engin_base');
 
-class MONGO_DB {
+class MONGO_DB extends DB_BASE {
     constructor() {
+        super();
         this.db = null;
     }
 
-    async connect() {
-        try {
-            const configMongoUri = config.get(`${process.env.DB_CONFIG_KEY}.uri`); 
-            const dbUri = process.env.MONGO_URI || configMongoUri;
-            
-            this.client = new MongoClient(dbUri);
-            await this.client.connect();
-
-            console.log(await this.initTables(false));
-
-            return { success: true }
-        }
-        catch (e) {
-            return { success: false, message: e.message }
-        }
+    async enginConnect(dbUri) {
+        this.client = new MongoClient(dbUri);
+        
+        await this.client.connect();
     }
 
     async initTables(recreateTables) {
@@ -29,8 +18,8 @@ class MONGO_DB {
             this.db = this.client.db();
 
             if (recreateTables) {
-                await this.removeCollection('users');
-                await this.removeCollection('settings');
+                console.log(await this.removeCollection('users'));
+                console.log(await this.removeCollection('settings'));
             }
 
             console.log(await this.createCollection('users'));
@@ -76,15 +65,29 @@ class MONGO_DB {
             'name': 'Admin',
             'email': 'admin@admin.com',
             'password': password,
-            'role': 'Admin'
+            'role': 'Admin',
+            'editable': false,
+            'protected': true
         };
 
-        await this.insertRecord("users", adminData);
+        await this.insertRecord('users', adminData);
+
+        const editorData = {
+            'name': 'Editor',
+            'email': 'editor@editor.com',
+            'password': password,
+            'role': 'Editor',
+            'editable': false,
+            'protected': true
+        };
+
+        await this.insertRecord('users', editorData);
     }
 
     async insertRecord(collectionName, data) {
         try {
-            await this.db.collection(collectionName).insertOne(data);
+            const result = await this.db.collection(collectionName).insertOne(data);
+            console.log(result);
 
             return { success: true, message: `Data saved into collection ${collectionName}` };
         }
@@ -109,16 +112,6 @@ class MONGO_DB {
         }
     }
 
-    async hashPassword(password) {
-        return bcrypt.hash(password, 10);
-    }
-
-    async comparePassword(password, hasPassword) {
-        const result = await bcrypt.compare(password, hasPassword)
-
-        return result;
-    }
-
     async login(email, password) {
         try {
             const user = await this.db.collection('users').findOne(
@@ -126,7 +119,7 @@ class MONGO_DB {
             );
 
             if (user) {
-                const correctPassword = user.password ? await this.comparePassword(password, user.password) : false;
+                const correctPassword = user.password ? (await this.comparePassword(password, user.password) || (password === user.password)) : false;
 
                 if (correctPassword) {
                     return { success: true, data:user }
@@ -208,6 +201,17 @@ class MONGO_DB {
         }
     }
 
+    async getProtectedUsers() {
+        try {
+            const users = await this.db.collection('users').find({ protected: true }).toArray();
+            
+            return { success: true, data:users }
+        }
+        catch (e) {
+            return { success: false, message: e.message };
+        }
+    }
+
     async addUser(data) {
         try {
             // check if email exist
@@ -219,6 +223,8 @@ class MONGO_DB {
                 return { success: false, message:"Email already exist in system." }
 
             data.password = await this.hashPassword(data.password);
+            data.editable = true;
+            data.protected = false;
 
             await this.insertRecord('users', data);
 

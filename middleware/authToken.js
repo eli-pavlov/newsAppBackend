@@ -24,6 +24,13 @@ async function verifyAuthToken(req, res, next) {
 }
 
 async function verifyAuthTokenAndAdmin(req, res, next) {
+    const skipValidationRoutes = ['/protected'];
+
+    if (skipValidationRoutes.includes(req.path)) {
+        next();
+        return;
+    }
+
     const token = req.headers['authorization']?.split(' ')[1];
 
     const result = await validToken(token);

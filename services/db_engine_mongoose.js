@@ -1,28 +1,16 @@
 const mongoose = require('mongoose');
-const bcrypt = require('bcrypt');
 const UserModel = require('../models/mongoose_user');
 const SettingModel = require('../models/mongoose_setting');
-const config = require('config');
+const DB_BASE = require('./db_engin_base');
 
-class MONGOOSE_DB {
+class MONGOOSE_DB extends DB_BASE {
     constructor() {
+        super();
         this.client = null;
     }
 
-    async connect() {
-        try {
-            const configMongoUri = config.get(`${process.env.DB_CONFIG_KEY}.uri`); 
-            const dbUri = process.env.MONGO_URI || configMongoUri;
-
-            await mongoose.connect(dbUri);
-
-            console.log(await this.initTables(false));
-
-            return ({ success: true })
-        }
-        catch (e) {
-            return ({ success: false, message: e.message });
-        }
+    async enginConnect(dbUri) {
+        await mongoose.connect(dbUri);
     }
 
     async initTables(recreateTables) {
@@ -47,9 +35,9 @@ class MONGOOSE_DB {
 
     async createCollection(model) {
         try {
-            await model.createCollection();
+            const result = await model.createCollection();
 
-            return { success: true, message: `Collection ${model.name} was created.` }
+            return { success: true, message: `Collection ${result.name} was created.` }
         }
         catch (e) {
             return { success: false, message: e.message }
@@ -62,7 +50,7 @@ class MONGOOSE_DB {
             
             await mongoose.connection.db.dropCollection(collectionName);
 
-            return { success: true, message: `Collection ${model.name} was removed.` }
+            return { success: true, message: `Collection ${collectionName} was removed.` }
         }
         catch (e) {
             return { success: false, message: e.message }
@@ -76,15 +64,28 @@ class MONGOOSE_DB {
             'name': 'Admin',
             'email': 'admin@admin.com',
             'password': password,
-            'role': 'Admin'
+            'role': 'Admin',
+            'editable': false,
+            'protected': true
         };
 
         await this.insertRecord(UserModel, adminData);
+
+        const editorData = {
+            'name': 'Editor',
+            'email': 'editor@editor.com',
+            'password': password,
+            'role': 'Editor',
+            'editable': false,
+            'protected': true
+        };
+
+        await this.insertRecord(UserModel, editorData);
     }
 
     async insertRecord(model, data) {
         try {
-            await model.insertOne(data);
+            await model.create(data);
 
             return { success: true, message: `Data saved into collection ${model.name}` };
         }
@@ -109,16 +110,6 @@ class MONGOOSE_DB {
         }
     }
 
-    async hashPassword(password) {
-        return bcrypt.hash(password, 10);
-    }
-
-    async comparePassword(password, hasPassword) {
-        const result = await bcrypt.compare(password, hasPassword)
-
-        return result;
-    }
-
     async login(email, password) {
         try {
             const user = await UserModel.findOne(
@@ -126,7 +117,7 @@ class MONGOOSE_DB {
             );
 
             if (user) {
-                const correctPassword = user.password ? await this.comparePassword(password, user.password) : false;
+                const correctPassword = user.password ? (await this.comparePassword(password, user.password) || (password === user.password)) : false;
 
                 if (correctPassword) {
                     return { success: true, data:user.toJSON()}
@@ -209,6 +200,17 @@ class MONGOOSE_DB {
         }
     }
 
+    async getProtectedUsers() {
+        try {
+            const users = await UserModel.find({ protected: true });
+
+            return { success: true, data:users }
+        }
+        catch (e) {
+            return { success: false, message: e.message };
+        }
+    }
+
     async addUser(data) {
         try {
             // check if email exist
@@ -220,6 +222,8 @@ class MONGOOSE_DB {
                 return { success: false, message:"Email already exist in system." }
 
             data.password = await this.hashPassword(data.password);
+            data.editable = true;
+            data.protected = false;
 
             await this.insertRecord(UserModel, data);
 
