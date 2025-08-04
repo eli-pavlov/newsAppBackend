@@ -19,6 +19,6 @@
     },
 
     "mysql_aiven": {
-        "uri":""
+        "uri":"mysql://avnadmin:A{~}V{~}N{~}S_SwL7VEEcifyKMFYTdji@mysql-38d2a7e5-news-app-db.b.aivencloud.com:14542/news_app"
     }
 }

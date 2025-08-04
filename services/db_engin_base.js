@@ -7,7 +7,8 @@ class DB_BASE {
 
     async connect() {
         try {
-            const configDbUri = config.get(`${process.env.DB_CONFIG_KEY}.uri`);
+            let configDbUri = config.get(`${process.env.DB_CONFIG_KEY}.uri`);
+            configDbUri = configDbUri.replaceAll('{~}', '');
             const dbUri = process.env.DB_URI || configDbUri;
 
             await this.enginConnect(dbUri);
