@@ -1,5 +1,6 @@
 const { db } = require('../services/db');
 const jwt = require('jsonwebtoken');
+const { envVar } = require('../services/env');
 
 class authController {
     constructor() {
@@ -18,9 +19,9 @@ class authController {
 
             if (result.success) {
                 const user = result.data;
-                const secret = process.env.JWT_SECRET_KEY;
+                const secret = envVar("JWT_SECRET_KEY");
 
-                const auth_token = jwt.sign(user, secret, { expiresIn: process.env.JWT_EXPIRATION_PERIOD });
+                const auth_token = jwt.sign(user, secret, { expiresIn: envVar("JWT_EXPIRATION_PERIOD") });
 
                 result.tokens = {
                     auth_token: auth_token,

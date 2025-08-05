@@ -1,8 +1,9 @@
 const jwt = require('jsonwebtoken');
+const { envVar } = require('../services/env');
 
 function validToken(token) {
     return new Promise((resolve, reject) => {
-        jwt.verify(token, process.env.JWT_SECRET_KEY, (err, decoded) => {
+        jwt.verify(token, envVar("JWT_SECRET_KEY"), (err, decoded) => {
             if (err)
                 resolve(false);
         

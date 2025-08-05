@@ -1,7 +1,9 @@
+const { envVar } = require('../services/env');
+
 let db_engin_class = null;
 let dbAvailable = null;
 
-switch (process.env.DB_TYPE) {
+switch (envVar("DB_ENGINE_TYPE")) {
     case 'MONGO':
         db_engin_class = require('./db_engin_mongo')
         break;

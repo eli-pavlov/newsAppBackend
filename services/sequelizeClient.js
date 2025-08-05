@@ -4,19 +4,23 @@ const config = require("config");
 let seqClient = null;
 
 try {
-    const configDbUri = config.get(
-        `${process.env.DB_CONFIG_KEY}.uri`,
-        {
-            // dialectOptions: {
-            //     ssl: {
-            //         require: true,
-            //         rejectUnauthorized: false, // Required for services like Render
-            //     }
-            // }
-        }
-    );
+    let configDbUri = null;
+    let dbConnectionKey = envVar("DB_CONNECTION_KEY");
+    if (dbConnectionKey) {
+        configDbUri = envVar(dbConnectionKey);
+    }
 
-    seqClient = new Sequelize(process.env.DB_URI || configDbUri);
+    const options =
+    {
+        // dialectOptions: {
+        //     ssl: {
+        //         require: true,
+        //         rejectUnauthorized: false, // Required for services like Render
+        //     }
+        // }
+    }
+
+    seqClient = new Sequelize(envVar("DB_URI") || configDbUri, options);
 }
 catch (e) {
     console.error(e.message);

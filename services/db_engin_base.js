@@ -1,5 +1,6 @@
 const bcrypt = require('bcrypt');
 const config = require('config');
+const { envVar } = require('../services/env');
 
 class DB_BASE {
     constructor() {
@@ -7,9 +8,14 @@ class DB_BASE {
 
     async connect() {
         try {
-            let configDbUri = config.get(`${process.env.DB_CONFIG_KEY}.uri`);
-            configDbUri = configDbUri.replaceAll('{~}', '');
-            const dbUri = process.env.DB_URI || configDbUri;
+            let configDbUri = null;
+            let dbConnectionKey = envVar("DB_CONNECTION_KEY");
+            if (dbConnectionKey) {
+                configDbUri = envVar(dbConnectionKey);
+                configDbUri = configDbUri.replaceAll('{~}', '');
+            }
+
+            const dbUri = envVar("DB_URI") || configDbUri;
 
             await this.enginConnect(dbUri);
 

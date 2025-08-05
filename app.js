@@ -9,6 +9,7 @@ const { initDB } = require('./services/db');
 const authMiddleware = require('./middleware/authToken')
 const cors = require('cors');
 const path = require('path');
+const { envVar } = require('./services/env');
 
 const app = express()
 
@@ -62,7 +63,7 @@ app.use((req, res) => {
 initDB()
     .then(result => {
         if (result.success) {
-            const appPort = config.get("app.port") || process.env.DEFAULT_APP_PORT;
+            const appPort = envVar("APP_PORT");
             app.listen(appPort, async () => {
                 console.log(`Server is listening on port ${appPort}`);
             })

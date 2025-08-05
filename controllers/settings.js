@@ -1,5 +1,6 @@
 const { db } = require('../services/db');
 const { getMoviesList } = require('../services/movies')
+const { envVar } = require('../services/env');
 
 class settingsController {
     constructor() {
@@ -35,7 +36,7 @@ class settingsController {
 
                 // add the full url for each movie file
                 finalSettingsMoviesList.forEach(f => {
-                    f.url = `${req.protocol}://${req.get('host')}/${process.env.MOVIES_FOLDER}/${f.file_name}`
+                    f.url = `${req.protocol}://${req.get('host')}/${envVar("MOVIES_FOLDER")}/${f.file_name}`
                 })
 
                 result.data.movies = finalSettingsMoviesList;
@@ -46,7 +47,7 @@ class settingsController {
                 // in case there is no saved settings, return also the server movies files
                 const folderFilesList = folderMovies.map(f => ({
                     file_name: f,
-                    url: `${req.protocol}://${req.get('host')}/${process.env.MOVIES_FOLDER}/${f}`,
+                    url: `${req.protocol}://${req.get('host')}/${envVar("MOVIES_FOLDER")}/${f}`,
                 }));
 
                 result.movies = folderFilesList;
