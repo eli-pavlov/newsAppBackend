@@ -13,18 +13,39 @@ class MONGOOSE_DB extends DB_BASE {
         await mongoose.connect(dbUri);
     }
 
+    async createTables() {
+        const collections = await mongoose.connection.db.collections()
+        const tableNames = collections.map(c => c.collectionName);
+
+        if (!tableNames.includes('users')) {
+            await this.createTable(UserModel);
+        }
+
+        if (!tableNames.includes('settings')) {
+            await this.createTable(SettingModel);
+        }
+
+        const usersCount = await mongoose.connection.db.collection('users').countDocuments();
+        if (usersCount === 0)
+            await this.insertData();            
+    }
+
+    async createTable(model) {
+        console.log(await this.removeCollection(model));
+        console.log(await this.createCollection(model));
+    }
+
     async initTables(recreateTables) {
         try {
             if (recreateTables) {
                 console.log(await this.removeCollection(UserModel));
                 console.log(await this.removeCollection(SettingModel));
-            }
 
-            console.log(await this.createCollection(UserModel));
-            console.log(await this.createCollection(SettingModel));
+                console.log(await this.createCollection(UserModel));
+                console.log(await this.createCollection(SettingModel));
 
-            if (recreateTables)
                 await this.insertData();
+            }
 
             return { success: true, message: 'All tables created successfully' };
         }

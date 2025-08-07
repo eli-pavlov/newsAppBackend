@@ -13,20 +13,41 @@ class MONGO_DB extends DB_BASE {
         await this.client.connect();
     }
 
+    async createTables() {
+        this.db = this.client.db();
+
+        const collections = await this.db.listCollections().toArray();
+        const tableNames = collections.map(c => c.name);
+
+        if (!tableNames.includes('users')) {
+            await this.createTable('users');
+        }
+
+        if (!tableNames.includes('settings')) {
+            await this.createTable('settings');
+        }
+
+        const usersCount = await this.db.collection('users').countDocuments();
+        if (usersCount === 0)
+            await this.insertData();            
+    }
+
+    async createTable(collectionName) {
+        console.log(await this.removeCollection(collectionName));
+        console.log(await this.createCollection(collectionName));
+    }
+
     async initTables(recreateTables) {
         try {
-            this.db = this.client.db();
-
             if (recreateTables) {
                 console.log(await this.removeCollection('users'));
                 console.log(await this.removeCollection('settings'));
-            }
 
-            console.log(await this.createCollection('users'));
-            console.log(await this.createCollection('settings'));
+                console.log(await this.createCollection('users'));
+                console.log(await this.createCollection('settings'));
 
-            if (recreateTables)
                 await this.insertData();
+            }
 
             return { success: true, message: 'All tables created successfully' };
         }
@@ -37,8 +58,7 @@ class MONGO_DB extends DB_BASE {
 
     async createCollection(collectionName) {
         try {
-            const collection = this.db.createCollection(collectionName);
-        console.log(collection);
+            const collection = await this.db.createCollection(collectionName);
 
             return { success: true, message: `Collection ${collectionName} was created.` }
         }
@@ -49,7 +69,7 @@ class MONGO_DB extends DB_BASE {
 
     async removeCollection(collectionName) {
         try {
-            this.db.dropCollection(collectionName);
+            await this.db.dropCollection(collectionName);
 
             return { success: true, message: `Collection ${collectionName} was removed.` }
         }
@@ -87,7 +107,6 @@ class MONGO_DB extends DB_BASE {
     async insertRecord(collectionName, data) {
         try {
             const result = await this.db.collection(collectionName).insertOne(data);
-            console.log(result);
 
             return { success: true, message: `Data saved into collection ${collectionName}` };
         }

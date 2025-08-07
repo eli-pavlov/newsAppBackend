@@ -13,15 +13,23 @@ class PG_DB extends DB_BASE {
         await this.client.authenticate();
     }
 
+    async createTables() {
+        await this.client.sync({ force: false });  // create all tables from models
+
+        const count = await User.count();
+        if (count === 0)
+            this.insertData();
+    }
+
     async initTables(recreateTables) {
         try {
-            await this.client.sync({ force: recreateTables });  // create all tables from models
-
-            if (!recreateTables)
-                await this.initializeAssociations();
-
-            if (recreateTables)
+            if (recreateTables) {
+                await this.client.sync({ force: true });  // create all tables from models
                 await this.insertData();
+            }
+            else {
+                await this.initializeAssociations();
+            }
 
             return { success: true, message: 'All associations initialized and tables created successfully' };
         }

@@ -11,35 +11,76 @@ class MYSQL_DB extends DB_BASE {
         this.connection = await mysql.createConnection(dbUri);
     }
 
+    async createTables() {
+        const cond = ' IF NOT EXISTS ';
+
+        console.log(await this.createTable('users', cond));
+        console.log(await this.createTable('settings', cond));
+
+        const [rows] = await this.connection.execute('SELECT COUNT(*) total FROM users');
+        if (rows[0].total === 0)
+            this.insertData();
+    }
+
+    async createTable(tableName, cond) {
+        try {
+            let sql = '';
+
+            switch (tableName) {
+                case 'users':
+                    sql = `
+                        CREATE TABLE ${cond} users (
+                            id INT UNSIGNED auto_increment primary key,
+                            name VARCHAR(50) NOT NULL,
+                            email VARCHAR(50) NOT NULL,
+                            password VARCHAR(100) NOT NULL,
+                            role VARCHAR(20) NOT NULL,
+                            editable BOOLEAN NOT NULL DEFAULT FALSE,
+                            protected BOOLEAN NOT NULL DEFAULT TRUE
+                        )
+                    `;
+                    break;
+
+                case 'settings':
+                    sql = `
+                        CREATE TABLE ${cond} settings (
+                            id INT UNSIGNED auto_increment primary key,
+                            user_id INT UNSIGNED NOT NULL,
+                            data JSON NOT NULL,
+                            FOREIGN KEY (user_id) REFERENCES users(id) 
+                        )
+                    `;
+                    break;
+            }
+
+            const result = await this.connection.execute(sql);
+
+            return { success: true, message: `Table ${tableName} was created.` }
+        }
+        catch(e) {
+            return { success: false, message: e.message }
+        }
+    }
+
+    async removeTable(tableName) {
+        try {
+            let result = await this.connection.execute(`DROP TABLE IF EXISTS ${tableName}`);
+
+            return { success: true, message: `Table ${tableName} was removed.` }
+        }
+        catch(e) {
+            return { success: false, message: e.message }
+        }
+    }
+
     async initTables(recreateTables) {
         try {
             if (recreateTables) {
-                let result = await this.connection.execute('DROP TABLE IF EXISTS settings');
-                
-                result = await this.connection.execute('DROP TABLE IF EXISTS users');
+                console.log(await this.removeTable('settings'));
+                console.log(await this.removeTable('users'));
 
-                let sql = `
-                    CREATE TABLE users (
-                        id INT UNSIGNED auto_increment primary key,
-                        name VARCHAR(50) NOT NULL,
-                        email VARCHAR(50) NOT NULL,
-                        password VARCHAR(100) NOT NULL,
-                        role VARCHAR(20) NOT NULL,
-                        editable BOOLEAN NOT NULL DEFAULT FALSE,
-                        protected BOOLEAN NOT NULL DEFAULT TRUE
-                    )
-                `;
-                result = await this.connection.execute(sql);
-
-                sql = `
-                    CREATE TABLE settings (
-                        id INT UNSIGNED auto_increment primary key,
-                        user_id INT UNSIGNED NOT NULL,
-                        data JSON NOT NULL,
-                        FOREIGN KEY (user_id) REFERENCES users(id) 
-                    )
-                `;
-                result = await this.connection.execute(sql);
+                console.log(await this.createTable('users', ''));
+                console.log(await this.createTable('settings', ''));
 
                 await this.insertData();
             }

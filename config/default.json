@@ -2,7 +2,7 @@
     "APP_PORT": 3000,
     
     "POSTGRES_LOCAL": "postgres://postgres:postgres@localhost:5432/postgres",
-    "MONGO_LOCAL": "mongodb://localhost:27017/newa_app",
+    "MONGO_LOCAL": "mongodb://localhost:27017/news_app",
     "MONGO_ATLAS": "mongodb+srv://gil190267:fi8QnRnzoF1QQzZc@cluster0.zrqfwsi.mongodb.net/news_app",
     "MONGOOSE_LOCAL": "mongodb://localhost:27017/news_app",
     "MYSQL_AIVEN": "mysql://avnadmin:A{~}V{~}N{~}S_SwL7VEEcifyKMFYTdji@mysql-38d2a7e5-news-app-db.b.aivencloud.com:14542/news_app",

@@ -1,5 +1,5 @@
 const { Sequelize } = require('sequelize');
-const config = require("config");
+const { envVar } = require('../services/env');
 
 let seqClient = null;
 

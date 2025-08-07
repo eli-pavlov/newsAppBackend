@@ -19,6 +19,8 @@ class DB_BASE {
 
             await this.enginConnect(dbUri);
 
+            await this.createTables();
+
             console.log(await this.initTables(false));
             
             return ({ success: true })
@@ -29,6 +31,9 @@ class DB_BASE {
     }
 
     async enginConnect(dbUri) {
+    }
+
+    async createTables() {
     }
 
     async initTables(recreateTables) {
