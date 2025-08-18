@@ -1,6 +1,7 @@
 const { db } = require('../services/db');
 const { getMoviesList } = require('../services/movies')
-const { envVar } = require('../services/env');
+const { getUserId } = require('../services/user');
+const storage = require('../services/storage');
 
 class settingsController {
     constructor() {
@@ -11,17 +12,24 @@ class settingsController {
             const result = await db.getSettings(user);
 
             // get the movies files list from server folder
-            const folderMovies = await getMoviesList();
+            const serverMoviesList = await getMoviesList(getUserId(user));
+
+            let serverMoviesNames = [];
+            let serverMoviesInfo = {};
+            serverMoviesList.forEach(f => {
+                serverMoviesNames.push(f.name);
+                serverMoviesInfo[f.name] = {subFolder:f.subFolder, url:f.url};
+            });
 
             if (result.success) {
                 // get the saved movies list
                 const settingsMovies = result.data.movies.map(item => item.file_name);
 
                 // get the movies files list that were removed from server folder since last save 
-                const missingFiles = settingsMovies.filter(f => !folderMovies.includes(f));
+                const missingFiles = settingsMovies.filter(f => !serverMoviesNames.includes(f));
 
                 // find the new files that added to server folder
-                const newFiles = folderMovies.filter(f => !settingsMovies.includes(f));
+                const newFiles = serverMoviesNames.filter(f => !settingsMovies.includes(f));
 
                 // create the updated movies list 
                 // get only the saved files that are still exists in server folder (ignore the removed files)
@@ -36,7 +44,9 @@ class settingsController {
 
                 // add the full url for each movie file
                 finalSettingsMoviesList.forEach(f => {
-                    f.url = `${req.protocol}://${req.get('host')}/${envVar("MOVIES_FOLDER")}/${f.file_name}`
+                    f.deletable = (serverMoviesInfo[f.file_name].subFolder !== null);
+                    f.url = serverMoviesInfo[f.file_name].url;
+                    f.subFolder = serverMoviesInfo[f.file_name].subFolder;
                 })
 
                 result.data.movies = finalSettingsMoviesList;
@@ -45,9 +55,10 @@ class settingsController {
             }
             else {
                 // in case there is no saved settings, return also the server movies files
-                const folderFilesList = folderMovies.map(f => ({
-                    file_name: f,
-                    url: `${req.protocol}://${req.get('host')}/${envVar("MOVIES_FOLDER")}/${f}`,
+                const folderFilesList = serverMoviesList.map(f => ({
+                    file_name: f.name,
+                    url: f.url,
+                    deletable: f.deletable
                 }));
 
                 result.movies = folderFilesList;
