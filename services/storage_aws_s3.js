@@ -13,12 +13,12 @@ class STORAGE_S3 extends STORAGE_BASE {
             region: envVar('AWS_REGION')
         });
 
-        this.publicUrl = `https://${envVar('AWS_BUCKET')}.s3.${envVar('AWS_REGION')}.amazonaws.com/`;
+        this.publicUrl = `https://${envVar('AWS_BUCKET')}.s3.${envVar('AWS_REGION')}.amazonaws.com`;
         this.upload = multer({ storage: multer.memoryStorage() });
     }
 
     filePublicUrl(filePath) {
-        return (this.publicUrl + filePath).replaceAll('//', '/');
+        return this.publicUrl + ('/' + filePath).replaceAll('//', '/');
     }
 
     movieFilePublicUrl(fileName, subFolder=null) {
