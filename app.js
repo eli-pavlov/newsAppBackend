@@ -63,9 +63,11 @@ app.use((req, res) => {
 initDB()
     .then(result => {
         if (result.success) {
-            const appPort = envVar("APP_PORT");
-            app.listen(appPort, async () => {
-                console.log(`Server is listening on port ${appPort}`);
+           const appPort = envVar("APP_PORT") || process.env.PORT || 3000;
+           const appHost = process.env.HOST || envVar("HOST") || '0.0.0.0';
+           
+           app.listen(appPort, appHost, async () => {
+            console.log(`Server is listening on ${appHost}:${appPort}`);
             })
         }
         else {
