@@ -1,42 +1,69 @@
-
-name: Notify CICD (backend)
+name: Notify CICD (Backend)
 
 on:
   push:
     branches: [development, main]
 
+permissions:
+  contents: read
+
 jobs:
   dispatch:
     runs-on: ubuntu-latest
     steps:
+      - name: Guard required secrets
+        shell: bash
+        run: |
+          if [ -z "${{ secrets.CICD_REPO_PAT }}" ]; then
+            echo "::error::Missing CICD_REPO_PAT secret. This secret needs repo scope on the cicd-newsapp repository."
+            exit 1
+          fi
+
+      - name: Ensure jq is available
+        run: sudo apt-get update && sudo apt-get install -y jq
+
       - name: Send repository_dispatch to CICD repo
         env:
+          # The target repository that will RECEIVE the event
           CICD_OWNER: eli-pavlov
           CICD_REPO: cicd-newsapp
           GH_PAT: ${{ secrets.CICD_REPO_PAT }}
-          BRANCH_NAME: ${{ github.ref_name }}
-          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
-          COMMIT_SHA: ${{ github.sha }}
+          # The source repository context that TRIGGERED the event
+          SOURCE_REPO: ${{ github.repository }}
+          SOURCE_REF:  ${{ github.ref_name }}  # branch/tag name (not SHA)
+          SOURCE_SHA:  ${{ github.sha }}       # commit SHA (extra context)
         run: |
-          SHORT_SHA=$(echo "$COMMIT_SHA" | cut -c1-7)
+          set -euo pipefail
+          echo "Dispatching event to ${CICD_OWNER}/${CICD_REPO} for ${SOURCE_REPO}@${SOURCE_REF} (${SOURCE_SHA})"
+
           jq -n \
-            --arg branch "$BRANCH_NAME" \
-            --arg commit_message "$COMMIT_MESSAGE" \
-            --arg commit_sha "$COMMIT_SHA" \
-            --arg short_sha "$SHORT_SHA" \
+            --arg repo "$SOURCE_REPO" \
+            --arg ref  "$SOURCE_REF" \
+            --arg sha  "$SOURCE_SHA" \
+            --arg app  "newsapp-backend" \
             '{
-              event_type:"backend",
-              client_payload:{
-                originator:"backend",
-                branch:$branch,
-                commit_message:$commit_message,
-                commit_sha:$commit_sha,
-                short_sha:$short_sha
+              "event_type": "backend",
+              "client_payload": {
+                "source_repo": $repo,
+                "source_ref":  $ref,
+                "source_sha":  $sha,
+                "app_name":    $app
               }
             }' > body.json
 
-          curl -sSL -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${GH_PAT}" \
-            https://api.github.com/repos/${CICD_OWNER}/${CICD_REPO}/dispatches \
-            -d @body.json
+          HTTP=$(
+            curl -fsS -w "%{http_code}" -o resp.json -X POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "Content-Type: application/json" \
+              -H "Authorization: Bearer ${GH_PAT}" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "https://api.github.com/repos/${CICD_OWNER}/${CICD_REPO}/dispatches" \
+              -d @body.json || true
+          )
+          if [ "$HTTP" != "204" ]; then
+            echo "::error::repository_dispatch failed with HTTP ${HTTP}"
+            echo "Payload:"; cat body.json || true
+            echo "Response:"; cat resp.json || true
+            exit 1
+          fi
+          echo "✅ repository_dispatch accepted (204)."
