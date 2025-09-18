@@ -1,11 +1,50 @@
 {
     "APP_PORT": 3000,
     
-    "POSTGRES_LOCAL": "postgres://postgres:postgres@localhost:5432/postgres",
-    "MONGO_LOCAL": "mongodb://localhost:27017/news_app",
-    "MONGO_ATLAS": "mongodb+srv://gil190267:fi8QnRnzoF1QQzZc@cluster0.zrqfwsi.mongodb.net/news_app",
-    "MONGOOSE_LOCAL": "mongodb://localhost:27017/news_app",
-    "MYSQL_AIVEN": "mysql://avnadmin:A{~}V{~}N{~}S_SwL7VEEcifyKMFYTdji@mysql-38d2a7e5-news-app-db.b.aivencloud.com:14542/news_app",
+    "POSTGRES_LOCAL": {
+        "protocol":"postgres",
+        "user":"postgres",
+        "password":"postgres",
+        "host":"localhost",
+        "port":"5432",
+        "dbname":"news_app"
+    },
+    "MONGO_LOCAL": {
+        "protocol":"mongodb",
+        "user":"",
+        "password":"",
+        "host":"localhost",
+        "port":"27017",
+        "dbname":"news_app"
+    },
+    "MONGO_ATLAS": {
+        "protocol":"mongodb+srv",
+        "user":"gil190267",
+        "password":"fi8QnRnzoF1QQzZc",
+        "host":"cluster0.zrqfwsi.mongodb.net",
+        "port":"",
+        "dbname":"news_app"
+    },
+    "MONGOOSE_LOCAL": {
+        "protocol":"mongodb",
+        "user":"",
+        "password":"",
+        "host":"localhost",
+        "port":"27017",
+        "dbname":"news_app"
+    },
+    "MYSQL_AIVEN": {
+        "protocol":"mysql",
+        "user":"avnadmin",
+        "password":"A{~}V{~}N{~}S_SwL7VEEcifyKMFYTdji",
+        "host":"mysql-38d2a7e5-news-app-db.b.aivencloud.com",
+        "port":"14542",
+        "dbname":"news_app"
+    },
+    "_MONGO_LOCAL": "mongodb://localhost:27017/news_app",
+    "_MONGO_ATLAS": "mongodb+srv://gil190267:fi8QnRnzoF1QQzZc@cluster0.zrqfwsi.mongodb.net/news_app",
+    "_MONGOOSE_LOCAL": "mongodb://localhost:27017/news_app",
+    "_MYSQL_AIVEN": "mysql://avnadmin:A{~}V{~}N{~}S_SwL7VEEcifyKMFYTdji@mysql-38d2a7e5-news-app-db.b.aivencloud.com:14542/news_app",
 
     "MOVIES_COUNT": "100",
     "MOVIES_FOLDER": "movies",

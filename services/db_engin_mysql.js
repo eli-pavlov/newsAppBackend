@@ -1,10 +1,32 @@
 const mysql = require('mysql2/promise');
 const DB_BASE = require('./db_engin_base');
+const { getDBconnectionParams } = require('./env')
 
 class MYSQL_DB extends DB_BASE {
     constructor() {
         super();
         this.connection = null;
+    }
+
+    async ensureDBexist() {
+        const { user, password, host, port, dbname } = getDBconnectionParams();
+
+        console.log(user, password, host, port, dbname);
+        
+        // Connect to MySQL server without specifying a database
+        const connection = await mysql.createConnection({ host, user, password, port });
+
+        // Create the database/schema if it doesn’t exist
+        const sql = `
+            CREATE DATABASE IF NOT EXISTS ${dbname} 
+            CHARACTER SET utf8mb4 
+            COLLATE utf8mb4_unicode_ci;
+        `;
+        await connection.query(sql);
+
+        console.log(`Database/schema "${dbname}" exist/created`);
+
+        await connection.end();
     }
 
     async enginConnect(dbUri) {
@@ -57,7 +79,7 @@ class MYSQL_DB extends DB_BASE {
 
             return { success: true, message: `Table ${tableName} was created.` }
         }
-        catch(e) {
+        catch (e) {
             return { success: false, message: e.message }
         }
     }
@@ -68,7 +90,7 @@ class MYSQL_DB extends DB_BASE {
 
             return { success: true, message: `Table ${tableName} was removed.` }
         }
-        catch(e) {
+        catch (e) {
             return { success: false, message: e.message }
         }
     }
@@ -164,7 +186,7 @@ class MYSQL_DB extends DB_BASE {
                         (user_id, data)
                         VALUES ('${user.id}', '${JSON.stringify(data)}');
                     `;
-                    
+
                 const result = await this.connection.execute(sql);
             }
 
@@ -243,7 +265,7 @@ class MYSQL_DB extends DB_BASE {
                 let result = await this.connection.execute(`DELETE FROM settings WHERE user_id = '${user.id}'`)
                 result = await this.connection.execute(`DELETE FROM users WHERE id = '${user.id}'`)
             }
-    
+
             return { success: true }
         }
         catch (e) {

@@ -11,6 +11,53 @@ function envVar(key) {
     }
 }
 
+function getDBconnectionParams(dbKey=null) {
+    const dbProtocol = envVar("DB_PROTOCOL");
+    if (dbProtocol) {
+        const dbUser = envVar("DB_USER");
+        const dbPassword = envVar("DB_PASSWORD");
+        const dbHost = envVar("DB_HOST");
+        const dbPort = envVar("DB_PORT");
+        const dbName = envVar("DB_NAME");
+
+        return {
+            protocol: dbProtocol,
+            user: dbUser,
+            password: dbPassword,
+            host: dbHost,
+            port: dbPort,
+            dbname: dbName
+        }
+    }
+    else {
+        const dbConnectionKey = envVar("DB_CONNECTION_KEY");
+
+        return envVar(dbKey ? dbKey : dbConnectionKey);
+    }
+}
+
+function getDBconnectionString(dbKey=null) {
+    const { protocol, user="", password="", host, port="", dbname } = getDBconnectionParams(dbKey);
+
+    let connectionStr = `${protocol}://`;
+    
+    if (user)
+        connectionStr += `${user}:${password}@`;
+
+    connectionStr += `${host}`;
+
+    if (port)
+        connectionStr += `:${port}`;
+
+    connectionStr += `/${dbname}`;
+
+    connectionStr = connectionStr.replaceAll('{~}', '');
+
+    return connectionStr;
+}
+
 module.exports = {
-    envVar
+    envVar,
+    getDBconnectionParams,
+    getDBconnectionString
 }

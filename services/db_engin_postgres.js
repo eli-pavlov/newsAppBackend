@@ -1,16 +1,58 @@
-const seqClient = require('./sequelizeClient');
 const User = require('../models/user')
 const Setting = require('../models/setting')
 const DB_BASE = require('./db_engin_base');
+const { getDBconnectionParams } = require('./env')
+const { Client } = require('pg');
 
 class PG_DB extends DB_BASE {
     constructor() {
         super();
-        this.client = seqClient;
+    }
+
+    async ensureDBexist() {
+        const { user, password, host, port, dbname } = getDBconnectionParams();
+
+        const client = new Client({
+            user: user,
+            password: password,
+            host: host,
+            port: port,
+            database: "postgres"
+        });
+
+        await client.connect();
+
+        try {
+            await client.query(`CREATE DATABASE "${dbname}"`);
+
+            console.log(`Database "${dbname}" created`);
+        }
+        catch (err) {
+            if (err.code === "42P04") {
+                // already exists
+                console.log(`Database "${dbname}" already exists, skipping.`);
+            } else {
+                throw err;
+            }
+        } finally {
+            await client.end();
+
+            // this code must run only after db exist or created
+            const seqClient = require('./sequelizeClient');
+            this.client = seqClient;
+        }
     }
 
     async enginConnect(dbUri) {
         await this.client.authenticate();
+    }
+
+    async createDB() {
+        await this.client.sync({ force: false });  // create all tables from models
+
+        const count = await User.count();
+        if (count === 0)
+            this.insertData();
     }
 
     async createTables() {
