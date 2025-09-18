@@ -9,6 +9,8 @@
 
     "MOVIES_COUNT": "100",
     "MOVIES_FOLDER": "movies",
+    "MOVIES_EXT": "mp4",
+
     "JWT_SECRET_KEY": "NEWS_APP_2025",
     "JWT_EXPIRATION_PERIOD": "1d"
 }
