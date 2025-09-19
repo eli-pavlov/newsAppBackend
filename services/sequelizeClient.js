@@ -1,14 +1,10 @@
 const { Sequelize } = require('sequelize');
-const { envVar } = require('../services/env');
+const { getDBconnectionString } = require('../services/env');
 
 let seqClient = null;
 
 try {
-    let configDbUri = null;
-    let dbConnectionKey = envVar("DB_CONNECTION_KEY");
-    if (dbConnectionKey) {
-        configDbUri = envVar(dbConnectionKey);
-    }
+    let dbConnectionString = getDBconnectionString();
 
     const options =
     {
@@ -20,7 +16,7 @@ try {
         // }
     }
 
-    seqClient = new Sequelize(envVar("DB_URI") || configDbUri, options);
+    seqClient = new Sequelize(dbConnectionString, options);
 }
 catch (e) {
     console.error(e.message);
