@@ -14,4 +14,4 @@ function getGitInfo() {
 }
 
 const gitInfo = getGitInfo();
-fs.writeFileSync("./git_info.json", JSON.stringify(gitInfo, null, 2));
+fs.writeFileSync("./backend_git_info.json", JSON.stringify(gitInfo, null, 2));
