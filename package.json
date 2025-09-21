@@ -7,7 +7,9 @@
     "predev": "node ./services/git_info.js",
     "start": "node ./app.js",
     "dev": "nodemon ./app.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "prebuild": "node ./services/git_info.js",
+    "build": "vite build"
   },
   "keywords": [],
   "author": "",
