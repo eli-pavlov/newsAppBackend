@@ -9,7 +9,7 @@
     "dev": "nodemon ./app.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "prebuild": "node ./services/git_info.js",
-    "build": "vite build"
+    "build": "echo 'NO NEED BUILD STEP...'"
   },
   "keywords": [],
   "author": "",
