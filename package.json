@@ -4,12 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "predev": "node ./services/git_info.js",
     "start": "node ./app.js",
     "dev": "nodemon ./app.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "prebuild": "node ./services/git_info.js",
-    "build": "echo 'NO NEED BUILD STEP...'"
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",

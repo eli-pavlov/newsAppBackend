@@ -1,6 +1,4 @@
 const { envVar } = require('../services/env');
-const backendGitInfo = require('../backend_git_info.json');
-const fronendGitInfo = require('../frontend_git_info.json');
 
 let db_engin_class = null;
 let dbAvailable = null;
@@ -32,9 +30,10 @@ async function initDB() {
     return new Promise(async (resolve, reject) => {
         try {
             dbAvailable = await db.connect();
-            dbAvailable.git_info = {};
-            dbAvailable.git_info.backend = backendGitInfo;
-            dbAvailable.git_info.frontend = fronendGitInfo;
+            dbAvailable.git_info = {
+                branch: envVar('BACKEND_GIT_BRANCH') || "Unknown", 
+                commit:envVar('BACKEND_GIT_COMMIT') || "Unknown"
+            };
             
             const msg = dbAvailable.success ? "DB connection is available." : `DB connection failed. {${dbAvailable.message}}`;
             console.log(msg);
