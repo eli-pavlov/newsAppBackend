@@ -2,14 +2,24 @@ const fs = require('fs');
 const { execSync } = require("child_process");
 
 function getGitInfo() {
+  let branch = 'unknown'
+  let commit = 'unknown'
   try {
-    const branch = execSync("git rev-parse --abbrev-ref HEAD").toString().trim();
-    const commit = execSync("git rev-parse --short HEAD").toString().trim();
+    if (process.env.RENDER_GIT_BRANCH) {
+      console.log("GET GIT INFO FROM RENDER...");
+      branch = process.env.RENDER_GIT_BRANCH;
+      commit = process.env.RENDER_GIT_COMMIT;
+    }
+    else {
+      console.log("GET GIT INFO FROM JSON FILE...");
+      branch = execSync("git rev-parse --abbrev-ref HEAD").toString().trim();
+      commit = execSync("git rev-parse --short HEAD").toString().trim();
+    }
 
     return { branch, commit };
-  } 
+  }
   catch (err) {
-    return { branch: "unknown", commit: "unknown" };
+    return { branch, commit };
   }
 }
 
