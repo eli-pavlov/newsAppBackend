@@ -8,7 +8,7 @@ function getGitInfo() {
     if (process.env.RENDER_GIT_BRANCH) {
       console.log("GET GIT INFO FROM RENDER...");
       branch = process.env.RENDER_GIT_BRANCH;
-      commit = process.env.RENDER_GIT_COMMIT.substring(0, 6);
+      commit = process.env.RENDER_GIT_COMMIT.substring(0, 7);
     }
     else {
       console.log("GET GIT INFO FROM JSON FILE...");
