@@ -1,4 +1,5 @@
 const { envVar } = require('../services/env');
+const gitVersion = require('../git_info.json');
 
 let db_engin_class = null;
 let dbAvailable = null;
@@ -30,6 +31,7 @@ async function initDB() {
     return new Promise(async (resolve, reject) => {
         try {
             dbAvailable = await db.connect();
+            dbAvailable.git = gitVersion;
             
             const msg = dbAvailable.success ? "DB connection is available." : `DB connection failed. {${dbAvailable.message}}`;
             console.log(msg);

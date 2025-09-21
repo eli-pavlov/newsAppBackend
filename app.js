@@ -67,19 +67,6 @@ app.use((req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'app', 'index.html'));
 });
 
-// ==========================================================
-// const storage = require('./services/storage');
-
-// const s3 = new STORAGE_S3();
-// async function test() {
-    // console.log(await storage.createFolder({folderPath:'C:/_RT-ED/projects/news-app/backend/public/movies/one/aaa/test'}));
-    // console.log(await storage.getFolderContent({folderPath:'C:/_RT-ED/projects/news-app/backend/public/movies'}));
-    // console.log(await storage.deleteFile({filePath:'C:/_RT-ED/projects/news-app/backend/public/movies/test.mp4'}));
-// }
-// test();
-// return;
-// ==========================================================
-
 initDB()
     .then(result => {
         if (result.success) {
