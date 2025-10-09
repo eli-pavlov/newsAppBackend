@@ -1,54 +1,89 @@
-// services/s3Service.js
-const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
-const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
-const { v4: uuidv4 } = require('uuid');
+// newsAppBackend/services/s3Service.js
+const { S3Client, PutObjectCommand, HeadObjectCommand, DeleteObjectCommand } = require("@aws-sdk/client-s3");
+const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const { envVar } = require('./env');
+const { v4: uuidv4 } = require('uuid');
+const path = require('path');
 
 const s3Client = new S3Client({
     region: envVar('AWS_REGION'),
     credentials: {
         accessKeyId: envVar('AWS_ACCESS_KEY_ID'),
-        secretAccessKey: envVar('AWS_SECRET_ACCESS_KEY'),
+        awsSecretAccessKey: envVar('AWS_SECRET_ACCESS_KEY'),
     },
 });
 
 const BUCKET_NAME = envVar('AWS_BUCKET');
-const MOVIES_FOLDER = envVar('MOVIES_FOLDER');
+const MOVIES_FOLDER = envVar('MOVIES_FOLDER') || 'movies';
 
-async function generateUploadUrl(fileName, contentType, subFolder) {
-    if (!BUCKET_NAME || !MOVIES_FOLDER) {
-        return { success: false, message: 'S3 bucket or movies folder not configured on the server.' };
+class S3Service {
+    /**
+     * Generates a pre-signed URL for uploading a file to a user-specific folder in S3.
+     */
+    async generateUploadUrl(fileName, contentType, subFolder) {
+        try {
+            const fileExtension = path.extname(fileName);
+            const uniqueFileName = `${uuidv4()}${fileExtension}`;
+            const objectKey = `${MOVIES_FOLDER}/${subFolder}/${uniqueFileName}`;
+
+            const command = new PutObjectCommand({
+                Bucket: BUCKET_NAME,
+                Key: objectKey,
+                ContentType: contentType,
+            });
+
+            const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: 3600 }); // URL expires in 1 hour
+            
+            return { success: true, uploadUrl, objectKey };
+        } catch (error) {
+            console.error("Error generating pre-signed URL:", error);
+            return { success: false, message: "Could not generate upload URL." };
+        }
     }
 
-    try {
-        const uniqueFileName = `${uuidv4()}-${fileName.replace(/\s+/g, '-')}`;
-        const objectKey = `${MOVIES_FOLDER}/${subFolder}/${uniqueFileName}`;
+    /**
+     * Verifies if an object exists in the S3 bucket.
+     */
+    async verifyFileExists(objectKey) {
+        try {
+            const command = new HeadObjectCommand({
+                Bucket: BUCKET_NAME,
+                Key: objectKey,
+            });
+            await s3Client.send(command);
+            return { success: true };
+        } catch (error) {
+            if (error.name === 'NotFound') {
+                return { success: false, message: 'File not found after upload.' };
+            }
+            console.error("Error verifying file existence:", error);
+            return { success: false, message: 'Could not verify file.' };
+        }
+    }
 
-        const command = new PutObjectCommand({
-            Bucket: BUCKET_NAME,
-            Key: objectKey,
-            ContentType: contentType,
-        });
+    /**
+     * Deletes a file from the S3 bucket.
+     */
+    async deleteFile(objectKey) {
+        try {
+            const command = new DeleteObjectCommand({
+                Bucket: BUCKET_NAME,
+                Key: objectKey,
+            });
+            await s3Client.send(command);
+            return { success: true };
+        } catch (error) {
+            console.error("Error deleting file from S3:", error);
+            return { success: false, message: 'Could not delete file from storage.' };
+        }
+    }
 
-        const preSignedUrl = await getSignedUrl(s3Client, command, { expiresIn: 900 });
-        const objectUrl = `https://${BUCKET_NAME}.s3.${envVar('AWS_REGION')}.amazonaws.com/${objectKey}`;
-
-        return {
-            success: true,
-            preSignedUrl,
-            file_name: fileName,
-            url: objectUrl,
-            subFolder: subFolder,
-            deletable: true,
-            times: "1",
-            active: true
-        };
-    } catch (error) {
-        console.error('Error generating pre-signed URL:', error);
-        return { success: false, message: 'Could not generate upload URL.' };
+    /**
+     * Constructs the permanent public URL for an S3 object.
+     */
+    getFileUrl(objectKey) {
+        return `https://${BUCKET_NAME}.s3.${envVar('AWS_REGION')}.amazonaws.com/${objectKey}`;
     }
 }
 
-module.exports = {
-    generateUploadUrl
-};
+module.exports = new S3Service();
