@@ -5,6 +5,6 @@ const router = express.Router();
 
 router.post('/presigned-url', authMiddleware.verifyAuthToken, filesController.generatePresignedUrl);
 router.post('/delete', authMiddleware.verifyAuthToken, filesController.delete);
-router.post('/confirm', authMiddleware.verifyAuthToken, filesController.confirmUpload);  // New endpoint
+router.post('/confirm', authMiddleware.verifyAuthToken, filesController.confirmUpload);
 
 module.exports = router;
