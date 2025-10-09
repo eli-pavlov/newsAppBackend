@@ -72,9 +72,23 @@ deleteMovieFile = async function (fileName, subFolder) {
     }
 }
 
-module.exports = {
-    getMoviesFolder,
-    createUserMoviesFolder,
-    getMoviesList,
-    deleteMovieFile
+async function insertMovieToDB(movieData) {  // New function
+    try {
+        // Insert to settings.movies via DB (e.g., append to JSON field)
+        // For simplicity, fetch settings, append, save
+        const userId = movieData.userId;
+        const settings = await db.getSettings(userId);
+        if (settings.success) {
+            settings.data.movies.push(movieData);
+            const saveResult = await db.saveSettings(settings.data, userId);
+            return saveResult;
+        } else {
+            return { success: false, message: 'Failed to get settings for insert.' };
+        }
+    } catch (e) {
+        return { success: false, message: e.message };
+    }
 }
+
+
+module.exports = { getMoviesList, deleteMovieFile, insertMovieToDB };
