@@ -1,17 +1,20 @@
-const { envVar } = require('./env');
+// services/storage.js
+const config = require('config'); // If using node-config for this
+// Or directly from process.env if not using config
 
-let storage_class = null;
-
-switch (envVar("STORAGE_TYPE")) {
-    case 'AWS_S3':
-        storage_class = require('./storage_aws_s3')
-        break;
-
-    case 'DISK':
-        storage_class = require('./storage_disk')
-        break;
-
+let storageType = process.env.STORAGE_TYPE || config.get('storage.type'); // Pull from env or config
+if (!storageType) {
+    storageType = 'disk'; // Or 'base' – choose a default
 }
-const storage = new storage_class();
 
-module.exports = storage
+let storage_class;
+if (storageType === 'disk') {
+    storage_class = require('./storage_disk');
+} else if (storageType === 'aws_s3') {
+    storage_class = require('./storage_aws_s3');
+} else {
+    storage_class = require('./storage_base'); // Fallback if invalid type
+}
+
+const storage = new storage_class();
+module.exports = storage;
