@@ -1,6 +1,6 @@
+// backend/app.js (added explicit 0.0.0.0 bind + startup log; minor env fallback)
 const express = require("express");
-// const config = require('config');  // use default.json in dev mode and production.json in build mode.
-const dotenv = require('dotenv').config();  // add all variables defined in .env file to process.env (usage: process.env.VAR_NAME)
+const dotenv = require('dotenv').config();
 const { envVar } = require('./services/env');
 const dbRouter = require("./routes/db");
 const authRouter = require("./routes/auth");
@@ -71,10 +71,10 @@ initDB()
     .then(result => {
         if (result.success) {
             const appPort = envVar("APP_PORT") || process.env.PORT || 3000;
-            const appHost = process.env.HOST || envVar("HOST") || '0.0.0.0';
+            const appHost = '0.0.0.0'; // Explicitly bind to all interfaces for Docker/CI
            
             app.listen(appPort, appHost, async () => {
-                console.log(`Server is listening on ${appHost}:${appPort}`);
+                console.log(`Server is listening on ${appHost}:${appPort}`); // Startup log for debugging
             })
         }
         else {
