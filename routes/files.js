@@ -1,10 +1,8 @@
-const express = require('express');
-const filesController = require('../controllers/files');
-const authMiddleware = require('../middleware/authToken');
+const express = require("express");
 const router = express.Router();
+const filesController = require("../controllers/files");
 
-router.post('/presigned-url', authMiddleware.verifyAuthToken, filesController.generatePresignedUrl);
-router.post('/delete', authMiddleware.verifyAuthToken, filesController.delete);
-router.post('/confirm', authMiddleware.verifyAuthToken, filesController.confirmUpload);
+router.post('/upload', filesController.upload);
+router.post('/delete', filesController.delete);
 
-module.exports = router;
+module.exports = router

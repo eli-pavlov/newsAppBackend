@@ -1,83 +1,116 @@
-// newsAppBackend/controllers/settings.js
 const { db } = require('../services/db');
-const { getMoviesList } = require('../services/movies'); // This service will now query the DB
+const { getMoviesList } = require('../services/movies')
+const { getUserId } = require('../services/user');
+const storage = require('../services/storage');
 
 class settingsController {
-    constructor() {}
+    constructor() {
+    }
 
-    static async getSettingsFromDB(user) {
+    static async getSettingsFromDB(req, user) {
         try {
-            // 1. Get user-specific settings (title, theme, etc.)
-            const settingsResult = await db.getSettings(user);
+            const result = await db.getSettings(user);
 
-            // 2. Get the list of movies for the user from the database
-            const moviesResult = await getMoviesList(user);
+            // get the movies files list from server folder
+            const serverMoviesList = await getMoviesList(getUserId(user));
 
-            if (settingsResult.success) {
-                // Combine settings and the movie list
-                settingsResult.data.movies = moviesResult.success ? moviesResult.data : [];
-                return settingsResult;
-            } else {
-                // If no settings exist, create a default structure
-                const defaultSettings = {
-                    success: true,
-                    data: {
-                        // ... your default settings structure
-                        movies: moviesResult.success ? moviesResult.data : [],
-                    }
-                };
-                return defaultSettings;
+            let serverMoviesNames = [];
+            let serverMoviesInfo = {};
+            serverMoviesList.forEach(f => {
+                serverMoviesNames.push(f.name);
+                serverMoviesInfo[f.name] = {subFolder:f.subFolder, url:f.url};
+            });
+
+            if (result.success) {
+                // get the saved movies list
+                const settingsMovies = result.data.movies.map(item => item.file_name);
+
+                // get the movies files list that were removed from server folder since last save 
+                const missingFiles = settingsMovies.filter(f => !serverMoviesNames.includes(f));
+
+                // find the new files that added to server folder
+                const newFiles = serverMoviesNames.filter(f => !settingsMovies.includes(f));
+
+                // create the updated movies list 
+                // get only the saved files that are still exists in server folder (ignore the removed files)
+                let finalSettingsMoviesList = result.data.movies.filter(item => !missingFiles.includes(item.file_name));
+
+                // add the new movies files
+                newFiles.forEach(f => {
+                    finalSettingsMoviesList.push({
+                        file_name: f,
+                    });
+                })
+
+                // add the full url for each movie file
+                finalSettingsMoviesList.forEach(f => {
+                    f.deletable = (serverMoviesInfo[f.file_name].subFolder !== null);
+                    f.url = serverMoviesInfo[f.file_name].url;
+                    f.subFolder = serverMoviesInfo[f.file_name].subFolder;
+                })
+
+                result.data.movies = finalSettingsMoviesList;
+
+                return result;
             }
-        } catch (e) {
-            return { success: false, message: e.message };
+            else {
+                // in case there is no saved settings, return also the server movies files
+                const folderFilesList = serverMoviesList.map(f => ({
+                    file_name: f.name,
+                    url: f.url,
+                    deletable: f.deletable
+                }));
+
+                result.movies = folderFilesList;
+                result.message = result.message ?? "Get settings failed.";
+
+                return result;
+            }
+        }
+        catch (e) {
+            return { success:false, message: e.message};
         }
     }
 
     async getSettings(req, res) {
-        const user = req.user ?? null;
-        const result = await settingsController.getSettingsFromDB(user);
+        const user = req.user?? null; 
+
+        const result = await settingsController.getSettingsFromDB(req, user);
 
         if (result.success) {
-            res.status(200).json(result);
-        } else {
-            res.status(500).json(result);
+            res.status(200).json(result)
+        }
+        else {
+            res.status(500).json(result)
         }
     }
 
     async getUserSettings(req, res) {
-        const user = req.body;
-        const result = await settingsController.getSettingsFromDB(user);
+        const user = req.body; 
+
+        const result = await settingsController.getSettingsFromDB(req, user);
 
         if (result.success) {
-            res.status(200).json(result);
-        } else {
-            res.status(500).json(result);
+            res.status(200).json(result)
+        }
+        else {
+            res.status(500).json(result)
         }
     }
-    
+
     async saveSettings(req, res) {
         try {
             const data = req.body;
-            
-            // Separate movies from other settings before saving
-            const moviesData = data.movies;
-            delete data.movies;
 
-            // Save the core settings
-            const settingsSaveResult = await db.saveSettings(data, req.user ?? null);
-            if (!settingsSaveResult.success) {
-                 return res.status(500).json(settingsSaveResult);
-            }
-            
-            // Save the updated state of movies (e.g., 'active' or 'times' properties)
-            const moviesUpdateResult = await db.updateMovies(moviesData, req.user ?? null);
-            if (!moviesUpdateResult.success) {
-                return res.status(500).json(moviesUpdateResult);
-            }
+            const result = await db.saveSettings(data, (req.user?? null));
 
-            res.status(200).json({ success: true, message: "Settings saved." });
-        } catch (e) {
-            res.status(500).json({ success: false, message: e.message });
+            if (result.success)
+                res.status(200).json(result)
+            else
+                res.status(500).json(result)
+        }
+        catch (e) {
+            res.status(500).json({ success: true, message: e.message })
         }
     }
 }

@@ -1,19 +1,80 @@
-// newsAppBackend/services/movies.js
-const { db } = require('./db');
-const { getUserId } = require('./user');
+const fs = require('fs/promises');
+const { envVar } = require('../services/env');
+const storage = require('../services/storage');
 
-/**
- * Retrieves the list of movie files for a user from the database.
- */
-async function getMoviesList(user) {
-    const userId = getUserId(user);
-    // Add logic to get shared/global movies if 'user' is null or as needed
-    return await db.getFilesForUser(userId);
+getMoviesFolder = function (subFolder = null) {
+    const moviesFolder = envVar('MOVIES_FOLDER');
+
+    return `${moviesFolder}/${subFolder ? subFolder + '/' : ''}`;
 }
 
-// The deleteMovieFile logic is now handled inside the files controller
-// to keep S3 and DB operations together for atomicity.
+createUserMoviesFolder = async function (userId) {
+    const folderPath = getMoviesFolder(userId);
+
+    await storage.createFolder({ folderPath: folderPath });
+}
+
+getFolderMoviesList = async function (subFolder = null) {
+    try {
+        const moviesFolderPath = getMoviesFolder(subFolder);
+
+        const folderContent = await storage.getFolderContent({ folderPath: moviesFolderPath });
+
+        let files = []
+        const validExt = envVar("MOVIES_EXT").split(",");
+
+        if (folderContent.success) {
+            folderContent.files.forEach(f => {
+                const fileName = f.split('/').pop();  // get the last splited item
+                const fileExt = fileName.split('.').pop();
+
+                if (fileName !== fileExt) {
+                    if (validExt.includes(fileExt))
+                        files.push(
+                            {
+                                name: fileName,
+                                url: storage.movieFilePublicUrl(f, subFolder),
+                                subFolder: subFolder,
+                                deletable: (subFolder !== null)
+                            }
+                        );
+                }
+            })
+        }
+
+        return files;
+    }
+    catch (e) {
+        console.log(e.message);
+
+        return [];
+    }
+}
+
+getMoviesList = async function (userId) {
+    let commonMovies = await this.getFolderMoviesList();
+
+    let userMovies = await getFolderMoviesList(userId);
+
+    return [...commonMovies, ...userMovies];
+}
+
+deleteMovieFile = async function (fileName, subFolder) {
+    try {
+        const filePath = getMoviesFolder(subFolder) + fileName;
+
+        await storage.deleteFile({filePath: filePath});
+
+        return { success: true };
+    }
+    catch (e) {
+        return { success: false, message: e.message };
+    }
+}
 
 module.exports = {
-    getMoviesList
-};
+    getMoviesFolder,
+    createUserMoviesFolder,
+    getMoviesList,
+    deleteMovieFile
+}
