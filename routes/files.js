@@ -1,4 +1,4 @@
-// backend/routes/files.js (no changes; kept as-is for completeness)
+// backend/routes/files.js (Fixed: Consistent camelCase for method names)
 const express = require('express');
 const router = express.Router();
 const controller = require('../controllers/files');
@@ -7,7 +7,7 @@ router.post('/upload', controller.upload);
 router.post('/delete', controller.delete);
 router.post('/presign', controller.presign);
 router.post('/finalize', controller.finalize);
-router.post('/delete_presign', controller.deletePresign);
-router.post('/finalize_delete', controller.finalizeDelete);
+router.post('/deletePresign', controller.deletePresign); // Fixed: camelCase match
+router.post('/finalizeDelete', controller.finalizeDelete); // Fixed: camelCase match
 
 module.exports = router;

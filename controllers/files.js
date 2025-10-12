@@ -1,4 +1,4 @@
-// backend/controllers/files.js (added ContentType param; minor error handling)
+// backend/controllers/files.js (Fixed: Renamed methods to camelCase for consistency)
 const { deleteMovieFile } = require('../services/movies');
 const storage = require('../services/storage');
 const { db } = require('../services/db');
@@ -60,7 +60,7 @@ class filesController {
         }
     }
 
-    async delete_presign(req, res) {
+    async deletePresign(req, res) { // Fixed: Renamed to camelCase
         try {
             const { fileName, subFolder } = req.body;
             const userId = getUserId(req.user);
@@ -76,7 +76,7 @@ class filesController {
         }
     }
 
-    async finalize_delete(req, res) {
+    async finalizeDelete(req, res) { // Fixed: Renamed to camelCase
         try {
             const { fileName, subFolder } = req.body;
             if (!fileName) {
