@@ -4,7 +4,7 @@ const config = require('config'); // If using node-config for this
 
 let storageType = process.env.STORAGE_TYPE || config.get('storage.type'); // Pull from env or config
 if (!storageType) {
-    storageType = 'disk'; // Or 'base' – choose a default
+    storageType = 'aws_s3'; // Or 'base' – choose a default
 }
 
 let storage_class;
