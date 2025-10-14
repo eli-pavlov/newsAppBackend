@@ -9,5 +9,7 @@ router.post('/presign', controller.presign);
 router.post('/finalize', controller.finalize);
 router.post('/deletePresign', controller.deletePresign); // Fixed: camelCase match
 router.post('/finalizeDelete', controller.finalizeDelete); // Fixed: camelCase match
+// New: return existing uploaded movies (merges legacy + per-user)
+router.post('/list', filesController.list)
 
 module.exports = router;
