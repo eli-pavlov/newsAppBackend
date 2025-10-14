@@ -6,34 +6,45 @@ let pool;
 
 function getPool() {
   if (pool) return pool;
+
+  // Prefer DATABASE_URL if provided
   const connectionString = envVar("DATABASE_URL");
   if (connectionString) {
     pool = new Pool({ connectionString });
-  } else {
-    pool = new Pool({
-      host: envVar("PGHOST", "127.0.0.1"),
-      port: parseInt(envVar("PGPORT", "5432"), 10),
-      user: envVar("PGUSER", "postgres"),
-      password: envVar("PGPASSWORD", ""),
-      database: envVar("PGDATABASE", "postgres"),
-      max: 10,
-      idleTimeoutMillis: 10000,
-    });
+    return pool;
   }
+
+  // Sensible defaults for CI/local Postgres
+  const host = envVar("PGHOST", "127.0.0.1");
+  const port = parseInt(envVar("PGPORT", "5432"), 10);
+  const user = envVar("PGUSER", "postgres");
+  // IMPORTANT: default password to 'postgres' if not set
+  const password = envVar("PGPASSWORD", "postgres");
+  const database = envVar("PGDATABASE", "postgres");
+
+  pool = new Pool({
+    host,
+    port,
+    user,
+    password,
+    database,
+    max: 10,
+    idleTimeoutMillis: 10000
+  });
+
   return pool;
 }
 
 async function initDB() {
   const client = await getPool().connect();
   try {
-    // Create a minimal table used by /files/list if it doesn't exist.
     await client.query(`
       CREATE TABLE IF NOT EXISTS files (
         id SERIAL PRIMARY KEY,
         name TEXT NOT NULL,
         size INTEGER DEFAULT 0,
         created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
-      );
+      )
     `);
     return { success: true };
   } catch (err) {
@@ -59,7 +70,9 @@ async function healthCheck() {
 async function listFiles() {
   const client = await getPool().connect();
   try {
-    const { rows } = await client.query("SELECT id, name, size, created_at FROM files ORDER BY created_at DESC, id DESC");
+    const { rows } = await client.query(
+      "SELECT id, name, size, created_at FROM files ORDER BY created_at DESC, id DESC"
+    );
     return rows;
   } finally {
     client.release();
