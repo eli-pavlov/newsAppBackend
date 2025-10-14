@@ -1,118 +1,150 @@
 const { db } = require('../services/db');
-const { getMoviesList } = require('../services/movies')
+const { getMoviesList } = require('../services/movies');
 const { getUserId } = require('../services/user');
-const storage = require('../services/storage');
 
+/**
+ * Merge DB-saved movies with server discovery (S3/disk).
+ * Tolerates legacy entries that have only a URL by deriving file_name from the URL.
+ */
 class settingsController {
-    constructor() {
+  constructor() {}
+
+  static _basenameFromUrl(u) {
+    try {
+      if (!u) return null;
+      // Works for both absolute and relative URLs
+      const path = u.split('?')[0]; // strip query if present
+      const parts = path.split('/');
+      const last = parts.pop() || parts.pop(); // handle trailing slash
+      return last || null;
+    } catch {
+      return null;
     }
+  }
 
-    static async getSettingsFromDB(req, user) {
-        try {
-            const result = await db.getSettings(user);
+  static async getSettingsFromDB(req, user) {
+    try {
+      const result = await db.getSettings(user);
 
-            // get the movies files list from server folder
-            const serverMoviesList = await getMoviesList(getUserId(user));
+      // Live server discovery (S3 + disk via services/movies.js)
+      const userId = getUserId(user);
+      const serverMoviesList = await getMoviesList(userId);
 
-            let serverMoviesNames = [];
-            let serverMoviesInfo = {};
-            serverMoviesList.forEach(f => {
-                serverMoviesNames.push(f.name);
-                serverMoviesInfo[f.name] = {subFolder:f.subFolder, url:f.url};
-            });
+      // Map discovered entries by filename for quick lookup
+      const serverByName = {};
+      for (const it of (serverMoviesList || [])) {
+        if (!it || !it.name) continue;
+        serverByName[it.name] = {
+          url: it.url,
+          subFolder: it.subFolder ?? null,
+          deletable: !!it.deletable,
+        };
+      }
 
-            if (result.success) {
-                // get the saved movies list
-                const settingsMovies = result.data.movies.map(item => item.file_name);
+      // No saved settings? Return server list as default shape
+      if (!result?.success || !result?.data) {
+        const folderFilesList = (serverMoviesList || []).map(f => ({
+          file_name: f.name,
+          url: f.url,
+          deletable: !!f.deletable,
+          subFolder: f.subFolder ?? null,
+        }));
+        return { success: true, data: { movies: folderFilesList } };
+      }
 
-                // get the movies files list that were removed from server folder since last save 
-                const missingFiles = settingsMovies.filter(f => !serverMoviesNames.includes(f));
+      // Saved settings exist — merge carefully
+      const saved = Array.isArray(result.data.movies) ? result.data.movies : [];
 
-                // find the new files that added to server folder
-                const newFiles = serverMoviesNames.filter(f => !settingsMovies.includes(f));
+      // Build a set of names saved in DB (derive from url if file_name missing)
+      const savedNames = new Set();
+      const finalMovies = [];
 
-                // create the updated movies list 
-                // get only the saved files that are still exists in server folder (ignore the removed files)
-                let finalSettingsMoviesList = result.data.movies.filter(item => !missingFiles.includes(item.file_name));
+      for (const item of saved) {
+        if (!item) continue;
 
-                // add the new movies files
-                newFiles.forEach(f => {
-                    finalSettingsMoviesList.push({
-                        file_name: f,
-                    });
-                })
-
-                // add the full url for each movie file
-                finalSettingsMoviesList.forEach(f => {
-                    f.deletable = (serverMoviesInfo[f.file_name].subFolder !== null);
-                    f.url = serverMoviesInfo[f.file_name].url;
-                    f.subFolder = serverMoviesInfo[f.file_name].subFolder;
-                })
-
-                result.data.movies = finalSettingsMoviesList;
-
-                return result;
-            }
-            else {
-                // in case there is no saved settings, return also the server movies files
-                const folderFilesList = serverMoviesList.map(f => ({
-                    file_name: f.name,
-                    url: f.url,
-                    deletable: f.deletable
-                }));
-
-                result.movies = folderFilesList;
-                result.message = result.message ?? "Get settings failed.";
-
-                return result;
-            }
+        // Derive a canonical filename
+        let name = item.file_name;
+        if (!name && item.url) {
+          name = settingsController._basenameFromUrl(item.url);
         }
-        catch (e) {
-            return { success:false, message: e.message};
+        if (!name) {
+          // If we truly can't derive a name, skip; nothing to match on
+          continue;
         }
+        savedNames.add(name);
+
+        // If server confirmed this file, trust server URL/subFolder/deletable
+        const s = serverByName[name];
+        if (s) {
+          finalMovies.push({
+            file_name: name,
+            url: s.url,
+            subFolder: s.subFolder,
+            deletable: s.deletable,
+          });
+        } else {
+          // Legacy/unknown location: keep DB URL so UI can still show it
+          finalMovies.push({
+            file_name: name,
+            url: item.url || '',
+            subFolder: item.subFolder ?? null,
+            deletable: !!item.subFolder, // conservative: deletable only if explicitly user-scoped
+          });
+        }
+      }
+
+      // Add newly discovered files not yet in DB
+      for (const it of (serverMoviesList || [])) {
+        if (!it || !it.name) continue;
+        if (!savedNames.has(it.name)) {
+          finalMovies.push({
+            file_name: it.name,
+            url: it.url,
+            subFolder: it.subFolder ?? null,
+            deletable: !!it.deletable,
+          });
+        }
+      }
+
+      // Save merged list back into the result so caller returns it
+      result.data.movies = finalMovies;
+      return result;
+    } catch (e) {
+      return { success: false, message: e.message };
     }
+  }
 
-    async getSettings(req, res) {
-        const user = req.user?? null; 
-
-        const result = await settingsController.getSettingsFromDB(req, user);
-
-        if (result.success) {
-            res.status(200).json(result)
-        }
-        else {
-            res.status(500).json(result)
-        }
+  async get(req, res) {
+    try {
+      const result = await settingsController.getSettingsFromDB(req, (req.user ?? null));
+      if (result?.success) return res.status(200).json(result);
+      return res.status(500).json(result);
+    } catch (e) {
+      return res.status(500).json({ success: false, message: e.message });
     }
+  }
 
-    async getUserSettings(req, res) {
-        const user = req.body; 
-
-        const result = await settingsController.getSettingsFromDB(req, user);
-
-        if (result.success) {
-            res.status(200).json(result)
-        }
-        else {
-            res.status(500).json(result)
-        }
+  // Admin: get settings for a provided user
+  async user(req, res) {
+    try {
+      const result = await settingsController.getSettingsFromDB(req, req.body?.user ?? null);
+      if (result?.success) return res.status(200).json(result);
+      return res.status(500).json(result);
+    } catch (e) {
+      return res.status(500).json({ success: false, message: e.message });
     }
+  }
 
-    async saveSettings(req, res) {
-        try {
-            const data = req.body;
-
-            const result = await db.saveSettings(data, (req.user?? null));
-
-            if (result.success)
-                res.status(200).json(result)
-            else
-                res.status(500).json(result)
-        }
-        catch (e) {
-            res.status(500).json({ success: true, message: e.message })
-        }
+  async set(req, res) {
+    try {
+      const data = req.body;
+      const result = await db.saveSettings(data, (req.user ?? null));
+      if (result.success) return res.status(200).json(result);
+      return res.status(500).json(result);
+    } catch (e) {
+      return res.status(500).json({ success: true, message: e.message });
     }
+  }
 }
 
 module.exports = new settingsController();
