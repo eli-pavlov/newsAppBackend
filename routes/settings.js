@@ -1,9 +1,8 @@
-const express = require("express");
-const router = express.Router();
-const settingController = require("../controllers/settings");
+// routes/settings.js
+const router = require("express").Router();
+const settingsController = require("../controllers/settings");
 
-router.get('/get', (req,res)=>settingController.getSettings(req,res));
-router.post('/user', (req, res) => settingController.getUserSettings(req, res));
-router.post('/set', (req, res) => settingController.saveSettings(req, res));
+router.get("/", settingsController.get);
+router.post("/", settingsController.update);
 
-module.exports = router
+module.exports = router;

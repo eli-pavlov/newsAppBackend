@@ -1,8 +1,11 @@
-const express = require("express");
-const router = express.Router();
-const dbController = require("../controllers/db");
+// routes/db.js
+const router = require("express").Router();
+const { healthCheck } = require("../services/db");
 
-router.get('/available', dbController.available);
-router.get('/create', dbController.create );
+router.get("/available", async (req, res) => {
+  const status = await healthCheck();
+  if (status.ok) res.json({ ok: true });
+  else res.status(500).json({ ok: false, error: status.error });
+});
 
-module.exports = router
+module.exports = router;
