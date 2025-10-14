@@ -99,8 +99,18 @@ async function getSettingsFromDB(req, user) {
   }
 }
 
+/**
+ * Make the export both:
+ *  - a callable function (in case routes mistakenly pass the controller itself),
+ *  - and an object with .get/.user/.set methods (usual pattern).
+ */
+function controller(_req, res) {
+  // If someone mounts this as a handler accidentally, fail clearly but safely.
+  res.status(400).json({ success: false, message: 'Invalid settings route handler' });
+}
+
 /** GET /settings/get */
-async function get(req, res) {
+controller.get = async function get(req, res) {
   try {
     const result = await getSettingsFromDB(req, (req.user ?? null));
     if (result?.success) return res.status(200).json(result);
@@ -108,10 +118,10 @@ async function get(req, res) {
   } catch (e) {
     return res.status(500).json({ success: false, message: e.message });
   }
-}
+};
 
 /** POST /settings/user  (admin fetch for a specific user) */
-async function user(req, res) {
+controller.user = async function user(req, res) {
   try {
     const result = await getSettingsFromDB(req, req.body?.user ?? null);
     if (result?.success) return res.status(200).json(result);
@@ -119,18 +129,18 @@ async function user(req, res) {
   } catch (e) {
     return res.status(500).json({ success: false, message: e.message });
   }
-}
+};
 
 /** POST /settings/set */
-async function set(req, res) {
+controller.set = async function set(req, res) {
   try {
     const data = req.body;
     const result = await db.saveSettings(data, (req.user ?? null));
     if (result.success) return res.status(200).json(result);
     return res.status(500).json(result);
   } catch (e) {
-    return res.status(500).json({ success: true, message: e.message });
+    return res.status(500).json({ success: false, message: e.message });
   }
-}
+};
 
-module.exports = { get, user, set };
+module.exports = controller;
