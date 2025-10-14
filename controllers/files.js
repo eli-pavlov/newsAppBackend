@@ -1,20 +1,41 @@
-// controllers/files.js
-const { listFiles } = require("../services/db");
+const { deleteMovieFile } = require('../services/movies');
+const storage = require('../services/storage');
 
-const filesController = {
-  async list(_req, res) {
-    try {
-      const files = await listFiles();
-      res.json({ success: true, files });
-    } catch (err) {
-      console.error("files.list error:", err);
-      res.status(500).json({ success: false, message: "Failed to list files" });
+class filesController {
+    constructor() {
     }
-  },
-  async upload(_req, res) { res.status(501).json({ success: false, message: "Not implemented" }); },
-  async delete(_req, res) { res.status(501).json({ success: false, message: "Not implemented" }); },
-  async presign(_req, res) { res.status(501).json({ success: false, message: "Not implemented" }); },
-  async finalize(_req, res) { res.status(501).json({ success: false, message: "Not implemented" }); },
-};
 
-module.exports = filesController;
+    async upload(req, res) {
+        try {
+            const result = await storage.uploadFile(req, res);
+
+            if (result.success)
+                res.status(200).json(result)
+            else
+                res.status(500).json(result)
+        }
+        catch (e) {
+            res.status(500).json({ success: false, message: e.message })
+        }
+    }
+
+    async delete(req, res) {
+        const { fileName, subFolder } = req.body;
+
+        try {
+            const result = await deleteMovieFile(fileName, subFolder/*getUserId()*/);
+
+            if (result.success) {
+                res.status(200).json(result)
+            }
+            else {
+                res.status(500).json(result)
+            }
+        }
+        catch (e) {
+            res.status(500).json({ success: false, message: e.message })
+        }
+    }
+}
+
+module.exports = new filesController();

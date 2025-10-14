@@ -170,25 +170,25 @@ class PG_DB extends DB_BASE {
     }
 
     async getSettings(user) {
-    try {
-        if (!user || !user.id) {
-        return { success: false, message: "Unknown user." };
+        try {
+            if (!user || !user.id)
+                return { success: false, message: "Unknown user." }
+
+            const result = await Setting.findOne(
+                { where: { user_id: String(user.id) } }
+            );
+
+            if (result) {
+                if (result?.dataValues?.data) {
+                    return { success: true, data: result.dataValues.data }
+                }
+            }
+
+            return { success: false, message: "User settings not found." }
         }
-
-        const result = await Setting.findOne({
-        where: { user_id: String(user.id) }
-        });
-
-        if (result) {
-        // Default to empty object if data is null/undefined
-        const settingsData = result.dataValues?.data || {};
-        return { success: true, data: settingsData };
+        catch (e) {
+            return { success: false, message: e.message };
         }
-
-        return { success: false, message: "User settings not found." };
-    } catch (e) {
-        return { success: false, message: e.message };
-    }
     }
 
     async saveSettings(data, user) {

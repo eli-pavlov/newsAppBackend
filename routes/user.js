@@ -1,4 +1,10 @@
-// routes/user.js
-const router = require("express").Router();
-router.get("/me", (_req, res) => res.json({ id: 1, name: "Test User" }));
-module.exports = router;
+const express = require("express");
+const router = express.Router();
+const userController = require("../controllers/user");
+
+router.get('/all', userController.all);
+router.get('/protected', userController.protected);
+router.post('/add', userController.add);
+router.post('/delete', userController.delete);
+
+module.exports = router

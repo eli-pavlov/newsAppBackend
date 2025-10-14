@@ -1,8 +1,9 @@
-// routes/settings.js
-const router = require("express").Router();
-const settingsController = require("../controllers/settings");
+const express = require("express");
+const router = express.Router();
+const settingController = require("../controllers/settings");
 
-router.get("/", settingsController.get);
-router.post("/", settingsController.update);
+router.get('/get', (req,res)=>settingController.getSettings(req,res));
+router.post('/user', settingController.getUserSettings);
+router.post('/set', settingController.saveSettings);
 
-module.exports = router;
+module.exports = router

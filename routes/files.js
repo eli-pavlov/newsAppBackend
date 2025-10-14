@@ -1,11 +1,8 @@
-// routes/files.js
-const router = require("express").Router();
+const express = require("express");
+const router = express.Router();
 const filesController = require("../controllers/files");
 
-router.post("/list", filesController.list);
-router.post("/upload", filesController.upload);
-router.post("/delete", filesController.delete);
-router.post("/presign", filesController.presign);
-router.post("/finalize", filesController.finalize);
+router.post('/upload', filesController.upload);
+router.post('/delete', filesController.delete);
 
-module.exports = router;
+module.exports = router

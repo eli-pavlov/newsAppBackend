@@ -1,82 +1,52 @@
-// services/db.js
-const { Pool } = require("pg");
-const { envVar } = require("./env");
+const { envVar } = require('../services/env');
 
-let pool;
+let db_engin_class = null;
+let dbAvailable = null;
 
-function getPool() {
-  if (pool) return pool;
+switch (envVar("DB_ENGINE_TYPE")) {
+    case 'MONGO':
+        db_engin_class = require('./db_engin_mongo')
+        break;
 
-  // Prefer DATABASE_URL if provided
-  const connectionString = envVar("DATABASE_URL");
-  if (connectionString) {
-    pool = new Pool({ connectionString });
-    return pool;
-  }
+    case 'MONGOOSE':
+        db_engin_class = require('./db_engine_mongoose')
+        break;
 
-  // Sensible defaults for CI/local Postgres
-  const host = envVar("PGHOST", "127.0.0.1");
-  const port = parseInt(envVar("PGPORT", "5432"), 10);
-  const user = envVar("PGUSER", "postgres");
-  // IMPORTANT: default password to 'postgres' if not set
-  const password = envVar("PGPASSWORD", "postgres");
-  const database = envVar("PGDATABASE", "postgres");
+    case 'POSTGRES':
+        db_engin_class = require('./db_engin_postgres')
+        break;
 
-  pool = new Pool({
-    host,
-    port,
-    user,
-    password,
-    database,
-    max: 10,
-    idleTimeoutMillis: 10000
-  });
+    case 'MYSQL':
+        db_engin_class = require('./db_engin_mysql')
+        break;
+}
+const db = new db_engin_class();
 
-  return pool;
+function getDbAvailable() {
+    return dbAvailable;
 }
 
 async function initDB() {
-  const client = await getPool().connect();
-  try {
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS files (
-        id SERIAL PRIMARY KEY,
-        name TEXT NOT NULL,
-        size INTEGER DEFAULT 0,
-        created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
-      )
-    `);
-    return { success: true };
-  } catch (err) {
-    console.error("DB init error:", err);
-    return { success: false, message: String(err) };
-  } finally {
-    client.release();
-  }
+    return new Promise(async (resolve, reject) => {
+        try {
+            dbAvailable = await db.connect();
+            dbAvailable.git_info = {
+                branch: envVar('BACKEND_GIT_BRANCH') || "Unknown", 
+                commit:envVar('BACKEND_GIT_COMMIT') || "Unknown"
+            };
+            
+            const msg = dbAvailable.success ? "DB connection is available." : `DB connection failed. {${dbAvailable.message}}`;
+            console.log(msg);
+            resolve({ success: true, message: msg});
+        }
+        catch (e) {
+            reject({ success: false, message: e.message })
+        }
+    })
 }
 
-async function healthCheck() {
-  const client = await getPool().connect();
-  try {
-    await client.query("SELECT 1");
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: String(err) };
-  } finally {
-    client.release();
-  }
-}
-
-async function listFiles() {
-  const client = await getPool().connect();
-  try {
-    const { rows } = await client.query(
-      "SELECT id, name, size, created_at FROM files ORDER BY created_at DESC, id DESC"
-    );
-    return rows;
-  } finally {
-    client.release();
-  }
-}
-
-module.exports = { getPool, initDB, healthCheck, listFiles };
+module.exports = {
+    db,
+    getDbAvailable,
+    initDB
+};
