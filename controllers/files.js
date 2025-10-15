@@ -1,41 +1,49 @@
-const { deleteMovieFile } = require('../services/movies');
+'use strict';
+
 const storage = require('../services/storage');
+const { deleteMovieFile } = require('../services/movies');
 
+/**
+ * controllers/files.js
+ * Minimal controller exposing /upload and /delete.
+ * Upload path is untouched; Delete path now resolves absolute key across legacy & new layouts.
+ */
 class filesController {
-    constructor() {
+  constructor() {}
+
+  async upload(req, res) {
+    try {
+      const result = await storage.uploadFile(req, res);
+      if (result && result.success) {
+        return res.status(200).json(result);
+      }
+      return res.status(500).json(result || { success: false, message: 'Upload failed' });
+    } catch (e) {
+      return res.status(500).json({ success: false, message: e.message });
     }
+  }
 
-    async upload(req, res) {
-        try {
-            const result = await storage.uploadFile(req, res);
+  async delete(req, res) {
+    try {
+      // Allow key / filePath / name / file_name; pass userId hint if available from auth middleware
+      const userId = req?.user?.id || req?.user?.user_id || null;
+      const payload = {
+        key: req.body?.key || req.query?.key,
+        filePath: req.body?.filePath || req.query?.filePath,
+        name: req.body?.name || req.query?.name,
+        file_name: req.body?.file_name || req.query?.file_name,
+        userId,
+      };
 
-            if (result.success)
-                res.status(200).json(result)
-            else
-                res.status(500).json(result)
-        }
-        catch (e) {
-            res.status(500).json({ success: false, message: e.message })
-        }
+      const result = await deleteMovieFile(payload);
+      if (result && result.success) {
+        return res.status(200).json(result);
+      }
+      return res.status(404).json(result || { success: false, message: 'File not found' });
+    } catch (e) {
+      return res.status(500).json({ success: false, message: e.message });
     }
-
-    async delete(req, res) {
-        const { fileName, subFolder } = req.body;
-
-        try {
-            const result = await deleteMovieFile(fileName, subFolder/*getUserId()*/);
-
-            if (result.success) {
-                res.status(200).json(result)
-            }
-            else {
-                res.status(500).json(result)
-            }
-        }
-        catch (e) {
-            res.status(500).json({ success: false, message: e.message })
-        }
-    }
+  }
 }
 
 module.exports = new filesController();
