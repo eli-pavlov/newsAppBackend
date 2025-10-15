@@ -1,42 +1,56 @@
 // services/movies.js
-const { envVar } = require('../services/env');
-const storage = require('../services/storage');
+const { envVar } = require('./env');
+const storage = require('./storage');
 
+/** Build "movies" root (optionally with user subfolder). Always ends with "/" */
 function getMoviesFolder(subFolder = null) {
-  const moviesFolder = String(envVar('MOVIES_FOLDER') || '').replace(/\/+$/, '');
-  return subFolder ? `${moviesFolder}/${String(subFolder).replace(/^\/+|\/+$/g, '')}/` : `${moviesFolder}/`;
+  const base = String(envVar('MOVIES_FOLDER') || 'movies').replace(/^\/+|\/+$/g, '');
+  if (!subFolder && subFolder !== 0) return `${base}/`;
+  const child = String(subFolder).replace(/^\/+|\/+$/g, '');
+  return `${base}/${child}/`;
 }
 
-async function createUserMoviesFolder(userId) {
-  const folderPath = getMoviesFolder(userId);
-  await storage.createFolder({ folderPath });
-}
-
+/** Normalize client-provided identifier (URL/path/name) to a key relative to moviesFolder */
 function normalizeKey(input, moviesFolder) {
   try {
     let key = String(input || '').trim();
+
+    // If full URL, keep only the path
     if (/^https?:\/\//i.test(key)) {
-      try { key = new URL(key).pathname || key; } catch (_) {}
+      try {
+        const u = new URL(key);
+        key = u.pathname || key;
+      } catch { /* noop */ }
     }
+
+    // Remove leading slash and decode (%20, etc)
     key = key.replace(/^\/+/, '');
-    try { key = decodeURIComponent(key); } catch (_) {}
+    try { key = decodeURIComponent(key); } catch { /* noop */ }
+
+    // Replace form-encoded '+' with space
     key = key.replace(/\+/g, ' ');
+
+    // Drop leading "uploads/" if present
     if (key.toLowerCase().startsWith('uploads/')) key = key.slice('uploads/'.length);
 
-    const mf = String(moviesFolder || '').replace(/^\/+|\/+$/g, '');
+    // If the path still includes moviesFolder, remove that prefix too
+    const mf = String(moviesFolder || '').replace(/^\/+|\/+$/g, ''); // e.g. "movies/123"
     if (mf) {
       const idx = key.toLowerCase().indexOf((mf + '/').toLowerCase());
       if (idx >= 0) key = key.slice(idx + mf.length + 1);
+      if (key.toLowerCase().startsWith(mf.toLowerCase())) key = key.slice(mf.length);
     }
+
     return key.replace(/^\/+/, '');
   } catch {
     return String(input || '').trim();
   }
 }
 
+/** List files from the (optional) subFolder */
 async function getFolderMoviesList(subFolder = null) {
   try {
-    const moviesFolderPath = getMoviesFolder(subFolder);
+    const moviesFolderPath = getMoviesFolder(subFolder); // ends with "/"
     const folderContent = await storage.getFolderContent({ folderPath: moviesFolderPath });
 
     const files = [];
@@ -46,19 +60,28 @@ async function getFolderMoviesList(subFolder = null) {
       .filter(Boolean);
 
     if (folderContent?.success && Array.isArray(folderContent.files)) {
-      folderContent.files.forEach((k) => {
-        const fileName = String(k).split('/').pop();
-        const fileExt = fileName.includes('.') ? fileName.split('.').pop().toLowerCase() : '';
-        if (fileName && fileExt && validExt.includes(fileExt)) {
-          files.push({
-            name: fileName,
-            url: storage.movieFilePublicUrl(k, subFolder),
-            subFolder,
-            deletable: subFolder !== null, // only user files are deletable
-          });
+      folderContent.files.forEach((keyFull) => {
+        const key = String(keyFull);
+
+        // When listing the ROOT (subFolder === null), only include immediate children.
+        if (subFolder === null) {
+          const rel = key.startsWith(moviesFolderPath) ? key.slice(moviesFolderPath.length) : key;
+          if (rel.includes('/')) return; // skip nested keys (e.g., user folders)
         }
+
+        const fileName = key.split('/').pop();
+        const fileExt = fileName.includes('.') ? fileName.split('.').pop().toLowerCase() : '';
+        if (!fileName || !fileExt || !validExt.includes(fileExt)) return;
+
+        files.push({
+          name: fileName,
+          url: storage.movieFilePublicUrl(key, subFolder),
+          subFolder,
+          deletable: true, // allow delete everywhere (root and user folders)
+        });
       });
     }
+
     return files;
   } catch (e) {
     console.log('[movies.list] error:', e.message);
@@ -66,17 +89,19 @@ async function getFolderMoviesList(subFolder = null) {
   }
 }
 
+/** Union of common movies + user movies */
 async function getMoviesList(userId) {
-  const commonMovies = await getFolderMoviesList(null);
+  const commonMovies = await getFolderMoviesList();
   const userMovies = await getFolderMoviesList(userId);
   return [...commonMovies, ...userMovies];
 }
 
+/** Delete a file by normalizing to the exact S3 key, then trying abs and rel keys */
 async function deleteMovieFile(fileName, subFolder) {
   try {
-    const moviesFolder = getMoviesFolder(subFolder);  // e.g. "movies/1/" or "movies/"
-    const rel = normalizeKey(fileName, moviesFolder); // e.g. "My File.mp4"
-    const abs = `${moviesFolder}${rel}`.replace(/\/{2,}/g, '/');
+    const moviesFolder = getMoviesFolder(subFolder);      // e.g. "movies/123/"
+    const rel = normalizeKey(fileName, moviesFolder);     // e.g. "My File.mp4"
+    const abs = `${moviesFolder}${rel}`.replace(/\/{2,}/g, '/'); // "movies/123/My File.mp4"
 
     if (process.env.DEBUG_DELETE === '1') {
       console.log('[movies.delete] input=', fileName);
@@ -85,26 +110,24 @@ async function deleteMovieFile(fileName, subFolder) {
       console.log('[movies.delete] absKey=', abs);
     }
 
-    // Try absolute (with user subfolder when provided)
+    // Try absolute key first (full path including MOVIES_FOLDER/subFolder)
     let ok = false;
     try {
       const r1 = await storage.deleteFile({ filePath: abs });
-      ok = r1?.success === true;
+      ok = r1?.success !== false;
       if (process.env.DEBUG_DELETE === '1') console.log('[movies.delete] abs result=', r1);
     } catch (e) {
       if (process.env.DEBUG_DELETE === '1') console.log('[movies.delete] abs threw:', e?.message);
     }
 
-    // Fallback: try root (common)
+    // If that didn't work, try relative key (just the file inside moviesFolder)
     if (!ok) {
       try {
-        const rootFolder = getMoviesFolder(null); // "movies/"
-        const rootAbs = `${rootFolder}${rel}`.replace(/\/{2,}/g, '/');
-        const r2 = await storage.deleteFile({ filePath: rootAbs });
-        ok = r2?.success === true;
-        if (process.env.DEBUG_DELETE === '1') console.log('[movies.delete] root result=', r2);
+        const r2 = await storage.deleteFile({ filePath: rel });
+        ok = r2?.success !== false;
+        if (process.env.DEBUG_DELETE === '1') console.log('[movies.delete] rel result=', r2);
       } catch (e) {
-        if (process.env.DEBUG_DELETE === '1') console.log('[movies.delete] root threw:', e?.message);
+        if (process.env.DEBUG_DELETE === '1') console.log('[movies.delete] rel threw:', e?.message);
       }
     }
 
@@ -116,7 +139,7 @@ async function deleteMovieFile(fileName, subFolder) {
 
 module.exports = {
   getMoviesFolder,
-  createUserMoviesFolder,
   getMoviesList,
   deleteMovieFile,
+  createUserMoviesFolder: async (userId) => storage.createFolder({ folderPath: getMoviesFolder(userId) }),
 };

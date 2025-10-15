@@ -1,124 +1,89 @@
 // services/storage_disk.js
-const fs = require('fs');
-const fsp = require('fs/promises');
+// Local disk adapter (kept for parity; prod uses S3).
+
+const fs = require('fs/promises');
 const path = require('path');
 const { envVar } = require('./env');
 
-class DiskStorage {
+function ensureTrailingSlash(p) {
+  return p.endsWith(path.sep) ? p : p + path.sep;
+}
+
+function isSubPath(parent, candidate) {
+  const rel = path.relative(parent, candidate);
+  return !!rel && !rel.startsWith('..') && !path.isAbsolute(rel);
+}
+
+module.exports = class DiskStorage {
   constructor() {
-    this.root = path.resolve(envVar('FILES_ROOT') || 'uploads');
-    this.moviesFolder = String(envVar('MOVIES_FOLDER') || 'movies').replace(/^\/+|\/+$/g, '');
-  }
-
-  ensureAbsPath(input, { isFolder = false } = {}) {
-    let p = String(input || '').trim().replace(/\\/g, '/');
-    if (/^https?:\/\//i.test(p)) {
-      try { p = new URL(p).pathname || p; } catch (_) {}
-    }
-    p = p.replace(/^\/+/, '');
-    try { p = decodeURIComponent(p); } catch (_) {}
-    p = p.replace(/\+/g, ' ');
-    if (p.toLowerCase().startsWith('uploads/')) p = p.slice('uploads/'.length);
-
-    const prefix = this.moviesFolder ? `${this.moviesFolder}/` : '';
-    if (prefix && !p.toLowerCase().startsWith(prefix.toLowerCase())) p = prefix + p;
-    p = p.replace(/\/{2,}/g, '/');
-    if (isFolder && !p.endsWith('/')) p += '/';
-
-    return path.join(this.root, p);
-  }
-
-  async getFolderContent({ folderPath }) {
-    const dir = this.ensureAbsPath(folderPath, { isFolder: true });
-    try {
-      const entries = await fsp.readdir(dir, { withFileTypes: true });
-      const files = entries
-        .filter(e => e.isFile())
-        .map(e => e.name)
-        .map(name =>
-          path.posix.join(
-            String(this.moviesFolder),
-            String(folderPath || '').replace(/^\/+|\/+$/g, ''),
-            name
-          ).replace(/\/{2,}/g, '/')
-        );
-      return { success: true, files };
-    } catch (_) {
-      return { success: true, files: [] };
-    }
+    const root = envVar('DISK_ROOT_PATH') || '/data';
+    this.root = path.resolve(root);
   }
 
   async createFolder({ folderPath }) {
-    const dir = this.ensureAbsPath(folderPath, { isFolder: true });
-    await fsp.mkdir(dir, { recursive: true });
-    return { success: true };
+    const p = path.resolve(this.root, folderPath || '');
+    if (!isSubPath(this.root, p) && p !== this.root) throw new Error('Invalid folderPath');
+    await fs.mkdir(p, { recursive: true });
+    return { success: true, path: p };
   }
 
-  movieFilePublicUrl(filePath /*, subFolder */) {
-    const rel = String(filePath).replace(/\\+/g, '/').replace(/^\/+/, '');
-    return '/' + rel;
+  async getFolderContent({ folderPath }) {
+    const base = path.resolve(this.root, folderPath || '');
+    if (!isSubPath(this.root, base) && base !== this.root) throw new Error('Invalid folderPath');
+
+    try {
+      const out = [];
+      const rootWithSlash = ensureTrailingSlash(base);
+
+      async function walk(dir) {
+        const entries = await fs.readdir(dir, { withFileTypes: true });
+        for (const e of entries) {
+          const full = path.join(dir, e.name);
+          if (e.isDirectory()) {
+            await walk(full);
+          } else {
+            out.push(full);
+          }
+        }
+      }
+
+      await walk(base);
+
+      // Return keys relative to disk root (mimic S3-style keys)
+      const keys = out.map(f => {
+        const rel = path.relative(base, f).split(path.sep).join('/');
+        const prefix = (folderPath || '').replace(/^\/+|\/+$/g, '');
+        return prefix ? `${prefix}/${rel}` : rel;
+      });
+
+      return { success: true, files: keys };
+    } catch (e) {
+      return { success: false, message: e.message };
+    }
+  }
+
+  async uploadFile({ folderPath, fileName, body, buffer, stream /*, mimetype*/ }) {
+    const content = body ?? buffer ?? null;
+    if (!content) throw new Error('No file content provided');
+
+    const dir = path.resolve(this.root, folderPath || '');
+    if (!isSubPath(this.root, dir) && dir !== this.root) throw new Error('Invalid folderPath');
+
+    await fs.mkdir(dir, { recursive: true });
+    const full = path.join(dir, fileName);
+    await fs.writeFile(full, content);
+    return { success: true, path: full };
   }
 
   async deleteFile({ filePath }) {
-    const abs = this.ensureAbsPath(filePath);
-    try {
-      await fsp.unlink(abs);
-      return { success: true, key: filePath };
-    } catch (_) {
-      // not found → treat as already gone
-      return { success: false, key: filePath };
-    }
+    const full = path.resolve(this.root, filePath || '');
+    if (!isSubPath(this.root, full) && full !== this.root) throw new Error('Invalid filePath');
+    await fs.rm(full, { force: true });
+    return { success: true };
   }
 
-  async uploadFile(args = {}) {
-    let { folderPath, filePath, fileName, body, buffer, stream, file, base64, fileBase64, contentBase64 } = args;
-
-    if (file && !body && !buffer && !stream) {
-      if (file.buffer) buffer = file.buffer;
-      else if (file.data) buffer = file.data;
-      else if (file.path || file.tempFilePath) {
-        stream = fs.createReadStream(file.path || file.tempFilePath);
-      }
-      if (!fileName) fileName = file.originalname || file.name;
-    }
-
-    const b64 = base64 || fileBase64 || contentBase64 || (typeof body === 'string' ? body : null);
-    if (!buffer && !stream && typeof b64 === 'string') {
-      const comma = b64.indexOf(',');
-      const b64data = comma >= 0 ? b64.slice(comma + 1) : b64;
-      try { buffer = Buffer.from(b64data, 'base64'); } catch (_) {}
-    }
-
-    if (!body && buffer) body = buffer;
-
-    if (!body && !stream) {
-      return { success: false, message: 'No file content provided' };
-    }
-    if (!fileName && !filePath) fileName = `upload-${Date.now()}.bin`;
-
-    let abs;
-    if (filePath) {
-      abs = this.ensureAbsPath(filePath);
-    } else {
-      const base = folderPath ? String(folderPath) : `${this.moviesFolder}/`;
-      const joined = path.posix.join(base.replace(/\/+$/, ''), String(fileName));
-      abs = this.ensureAbsPath(joined);
-    }
-
-    await fsp.mkdir(path.dirname(abs), { recursive: true });
-
-    if (stream) {
-      await new Promise((resolve, reject) => {
-        const w = fs.createWriteStream(abs);
-        stream.pipe(w).on('finish', resolve).on('error', reject);
-      });
-    } else {
-      await fsp.writeFile(abs, body);
-    }
-
-    const key = abs.replace(this.root + path.sep, '').replace(/\\/g, '/');
-    return { success: true, key, url: this.movieFilePublicUrl(key) };
+  // For disk we can only return a relative path; the frontend typically uses the API
+  movieFilePublicUrl(key) {
+    return `/public/${String(key).replace(/^\/+/, '')}`;
   }
-}
-
-module.exports = DiskStorage;
+};
