@@ -6,7 +6,6 @@ const { envVar } = require('./env');
 
 class DiskStorage {
   constructor() {
-    // Root directory for files, default to ./uploads
     this.root = path.resolve(envVar('FILES_ROOT') || 'uploads');
     this.moviesFolder = String(envVar('MOVIES_FOLDER') || 'movies').replace(/^\/+|\/+$/g, '');
   }
@@ -33,13 +32,16 @@ class DiskStorage {
     const dir = this.ensureAbsPath(folderPath, { isFolder: true });
     try {
       const entries = await fsp.readdir(dir, { withFileTypes: true });
-      const files = entries.filter(e => e.isFile()).map(e => e.name).map(name =>
-        path.posix.join(
-          String(this.moviesFolder),
-          String(folderPath || '').replace(/^\/+|\/+$/g, ''),
-          name
-        ).replace(/\/{2,}/g, '/')
-      );
+      const files = entries
+        .filter(e => e.isFile())
+        .map(e => e.name)
+        .map(name =>
+          path.posix.join(
+            String(this.moviesFolder),
+            String(folderPath || '').replace(/^\/+|\/+$/g, ''),
+            name
+          ).replace(/\/{2,}/g, '/')
+        );
       return { success: true, files };
     } catch (_) {
       return { success: true, files: [] };
@@ -53,7 +55,6 @@ class DiskStorage {
   }
 
   movieFilePublicUrl(filePath /*, subFolder */) {
-    // For dev: return a pseudo URL or a relative path under /uploads
     const rel = String(filePath).replace(/\\+/g, '/').replace(/^\/+/, '');
     return '/' + rel;
   }
@@ -64,7 +65,7 @@ class DiskStorage {
       await fsp.unlink(abs);
       return { success: true, key: filePath };
     } catch (_) {
-      // If it already doesn't exist, consider it deleted
+      // not found → treat as already gone
       return { success: false, key: filePath };
     }
   }
@@ -105,13 +106,9 @@ class DiskStorage {
       await fsp.writeFile(abs, body);
     }
 
-    // Return key relative to movies folder (S3-style path)
-    const key = abs
-      .replace(this.root + path.sep, '')
-      .replace(/\\/g, '/');
-
+    const key = abs.replace(this.root + path.sep, '').replace(/\\/g, '/');
     return { success: true, key, url: this.movieFilePublicUrl(key) };
-    }
+  }
 }
 
 module.exports = DiskStorage;

@@ -12,17 +12,22 @@ class AwsS3Storage {
     this.s3 = new AWS.S3({ region: this.region });
   }
 
+  // ---- key/path helpers ----
   ensureKey(input, { isFolder = false } = {}) {
     let key = String(input || '').trim();
 
+    // accept full URL
     if (/^https?:\/\//i.test(key)) {
       try { key = new URL(key).pathname || key; } catch (_) {}
     }
     key = key.replace(/^\/+/, '');
     try { key = decodeURIComponent(key); } catch (_) {}
     key = key.replace(/\+/g, ' ');
+
+    // strip leading uploads/
     if (key.toLowerCase().startsWith('uploads/')) key = key.slice('uploads/'.length);
 
+    // ensure movies/ prefix
     const prefix = this.moviesFolder ? `${this.moviesFolder}/` : '';
     if (prefix && !key.toLowerCase().startsWith(prefix.toLowerCase())) key = prefix + key;
 
@@ -31,6 +36,7 @@ class AwsS3Storage {
     return key;
   }
 
+  // ---- listing ----
   async getFolderContent({ folderPath }) {
     const Prefix = this.ensureKey(folderPath, { isFolder: true });
     const out = await this.s3.listObjectsV2({
@@ -46,17 +52,20 @@ class AwsS3Storage {
     return { success: true, files };
   }
 
+  // ---- create folder ----
   async createFolder({ folderPath }) {
     const Key = this.ensureKey(folderPath, { isFolder: true });
     await this.s3.putObject({ Bucket: this.bucket, Key, Body: '' }).promise();
     return { success: true, key: Key };
   }
 
+  // ---- public URL ----
   movieFilePublicUrl(s3KeyOrPath /*, subFolder */) {
     const key = this.ensureKey(s3KeyOrPath);
     return `https://${this.bucket}.s3.${this.region}.amazonaws.com/${encodeURI(key)}`;
   }
 
+  // ---- delete ----
   async deleteFile({ filePath }) {
     const Key = this.ensureKey(filePath);
     if (process.env.DEBUG_DELETE === '1') {
@@ -65,7 +74,7 @@ class AwsS3Storage {
 
     await this.s3.deleteObject({ Bucket: this.bucket, Key }).promise();
 
-    // Verify
+    // verify gone
     try {
       await this.s3.headObject({ Bucket: this.bucket, Key }).promise();
       if (process.env.DEBUG_DELETE === '1') console.log('[s3.delete] still exists:', Key);
@@ -81,13 +90,15 @@ class AwsS3Storage {
     }
   }
 
+  // ---- upload ----
   /**
    * Flexible upload:
    *   uploadFile({ folderPath, fileName, body|buffer|stream|file, contentType, acl })
    *   uploadFile({ filePath, body|buffer|stream|file, contentType, acl })
+   *
+   * Supports multer (file.buffer), express-fileupload (file.data), or raw buffers/streams.
    */
   async uploadFile(args = {}) {
-    // Normalize args
     let {
       folderPath,
       filePath,
@@ -100,10 +111,10 @@ class AwsS3Storage {
       acl
     } = args;
 
-    // Derive body/name/type from common upload libs
+    // derive from typical upload objects
     if (file && !body && !buffer && !stream) {
-      if (file.buffer) buffer = file.buffer;
-      else if (file.data) buffer = file.data;           // express-fileupload
+      if (file.buffer) buffer = file.buffer;               // multer
+      else if (file.data) buffer = file.data;              // express-fileupload
       else if (file.path || file.tempFilePath) {
         const p = file.path || file.tempFilePath;
         stream = fs.createReadStream(p);
