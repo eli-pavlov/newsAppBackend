@@ -1,17 +1,21 @@
 const { envVar } = require('./env');
+const storage_disk = require('./storage_disk');
+const storage_aws_s3 = require('./storage_aws_s3');
 
-let storage_class = null;
+const storageType = envVar('STORAGE_TYPE');
+let storage;
 
-switch (envVar("STORAGE_TYPE")) {
-    case 'AWS_S3':
-        storage_class = require('./storage_aws_s3')
-        break;
-
-    case 'DISK':
-        storage_class = require('./storage_disk')
-        break;
-
+if (storageType === 'DISK') {
+    // Assign the already-created instance directly
+    storage = storage_disk;
+} else if (storageType === 'AWS_S3') {
+    // Assign the already-created instance directly
+    storage = storage_aws_s3;
+} else {
+    // Default to disk if not specified
+    console.warn('STORAGE_TYPE not set, defaulting to DISK.');
+    storage = storage_disk;
 }
-const storage = new storage_class();
 
-module.exports = storage
+// Export the selected instance
+module.exports = storage;
