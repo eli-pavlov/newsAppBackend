@@ -1,163 +1,116 @@
+// services/storage_aws_s3.js
+//
+// AWS S3 adapter used by services/storage.js.
+// Focus: robust key normalization and verified deletion.
+
 const AWS = require('aws-sdk');
-const STORAGE_BASE = require('./storage_base');
 const { envVar } = require('./env');
-const multer = require("multer");
-const fs = require("fs");
 
-class STORAGE_S3 extends STORAGE_BASE {
-    constructor() {
-        super();
+const BUCKET = envVar('AWS_BUCKET');
+const REGION = envVar('AWS_REGION');
+const MOVIES_FOLDER = String(envVar('MOVIES_FOLDER') || 'movies').replace(/^\/+|\/+$/g, ''); // e.g. "movies"
 
-        this.s3 = new AWS.S3({
-            accessKeyId: envVar('AWS_ACCESS_KEY_ID'),
-            secretAccessKey: envVar('AWS_SECRET_ACCESS_KEY'),
-            region: envVar('AWS_REGION')
-        });
+const s3 = new AWS.S3({ region: REGION });
 
-        this.publicUrl = `https://${envVar('AWS_BUCKET')}.s3.${envVar('AWS_REGION')}.amazonaws.com`;
+/** Convert any incoming "path" (URL, /uploads/..., relative name) to a bucket key:
+ *  - strips leading "/" and "uploads/"
+ *  - decodes %.. and turns "+" into space
+ *  - ensures it is under MOVIES_FOLDER/
+ *  - for folders, ensures trailing "/"
+ */
+function ensureKey(p, { isFolder = false } = {}) {
+  let key = String(p || '').trim();
 
-        // memory upload
-        // this.upload = multer({ storage: multer.memoryStorage() });
+  // full URL? keep only pathname
+  if (/^https?:\/\//i.test(key)) {
+    try {
+      const u = new URL(key);
+      key = u.pathname || key;
+    } catch (_) {}
+  }
 
-        // disk upload
-        this.upload = multer({ dest: "uploads/" });
-    }
+  key = key.replace(/^\/+/, '');
+  try { key = decodeURIComponent(key); } catch (_) {}
+  key = key.replace(/\+/g, ' ');
 
-    filePublicUrl(filePath) {
-        return this.publicUrl + ('/' + filePath).replaceAll('//', '/');
-    }
+  if (key.toLowerCase().startsWith('uploads/')) {
+    key = key.slice('uploads/'.length);
+  }
 
-    movieFilePublicUrl(fileName, subFolder = null) {
-        return this.filePublicUrl(fileName);
-    }
+  const prefix = MOVIES_FOLDER ? `${MOVIES_FOLDER}/` : '';
+  if (prefix && !key.toLowerCase().startsWith(prefix.toLowerCase())) {
+    key = prefix + key;
+  }
 
-    getActionParams(params, extraData = {}) {
-        let actionParams = {
-            Bucket: params?.bucketName ? params.bucketName : envVar('AWS_BUCKET'),
-        };
-
-        return { ...actionParams, ...extraData };
-    }
-
-    async createFolder(params) {
-        const actionParams = this.getActionParams(params, { Key: params.folderPath + '/', Body: '' });  // zero-byte object
-
-        try {
-            await this.s3.putObject(actionParams).promise();
-
-            return { success: true };
-        }
-        catch (err) {
-            return { success: false, message: err.message };
-        }
-    }
-
-    async getFolderContent(params) {
-        const actionParams = this.getActionParams(params, { Prefix: params.folderPath, Delimiter: '/' });  // Delimiter is optional, to get folder-like behavior
-
-        try {
-            const data = await this.s3.listObjectsV2(actionParams).promise();
-
-            // data.Contents is an array of objects representing files
-            const folderContent = data.Contents.map(item => item.Key);
-
-            return { success: true, files: folderContent };
-        }
-        catch (err) {
-            return { success: false, message: err.message };
-        }
-    }
-
-    async deleteFile(params) {
-        const actionParams = this.getActionParams(params, { Key: params.filePath });
-
-        try {
-            await this.s3.deleteObject(actionParams).promise();
-
-            return { success: true };
-        }
-        catch (err) {
-            return { success: false, message: err.message };
-        }
-    }
-
-    // async uploadFileUsingMemory(req, res) {
-    //     return new Promise((resolve, reject) => {
-    //         this.upload.single('file')(req, res, async (e) => {
-    //             if (e) {
-    //                 return reject({ success: false, message: e.message });
-    //             }
-
-    //             try {
-    //                 const params = {
-    //                     Bucket: envVar('AWS_BUCKET'),
-    //                     Key: envVar('MOVIES_FOLDER') + '/' + req.body.subFolder + '/' + req.file.originalname,
-    //                     Body: req.file.buffer,
-    //                     ContentType: req.file.mimetype
-    //                 };
-
-    //                 await this.s3.upload(params).promise();
-
-    //                 return resolve({
-    //                     success: true,
-    //                     message: 'The file was uploaded successfully.',
-    //                     url: this.filePublicUrl(params.Key),
-    //                     file_name: req.file.originalname,
-    //                     subFolder:req.body.subFolder,
-    //                     times:1,
-    //                     deletable: true
-    //                 })
-    //             }
-    //             catch (e) {
-    //                 return reject({ success: false, message: e.message })
-    //             }
-    //         });
-    //     })
-    // }
-
-    async uploadFile(req, res) {
-        return new Promise((resolve, reject) => {
-            this.upload.single('file')(req, res, async (e) => {
-                if (e) {
-                    return reject({ success: false, message: e.message });
-                }
-
-                try {
-                    const fileStream = fs.createReadStream(req.file.path);
-
-                    const params = {
-                        Bucket: envVar('AWS_BUCKET'),
-                        Key: envVar('MOVIES_FOLDER') + '/' + req.body.subFolder + '/' + req.file.originalname,
-                        // Body: req.file.buffer, : memory upload
-                        Body: fileStream,
-                        ContentType: req.file.mimetype
-                    };
-
-                    await this.s3.upload(params).promise();
-
-                    return resolve({
-                        success: true,
-                        message: 'The file was uploaded successfully.',
-                        url: this.filePublicUrl(params.Key),
-                        file_name: req.file.originalname,
-                        subFolder: req.body.subFolder,
-                        times: 1,
-                        deletable: true
-                    })
-                }
-                catch (e) {
-                    return reject({ success: false, message: e.message })
-                }
-                finally {
-                    fs.unlink(req.file.path, (err) => {
-                        if (err) {
-                            console.error("Failed to remove file: " + req.file.path, err);
-                        }
-                    });
-                }
-            });
-        })
-    }
+  key = key.replace(/\/{2,}/g, '/');
+  if (isFolder && !key.endsWith('/')) key += '/';
+  return key;
 }
 
-module.exports = STORAGE_S3
+/** List objects under a logical "folderPath" */
+async function getFolderContent({ folderPath }) {
+  const Prefix = ensureKey(folderPath, { isFolder: true });
+
+  const out = await s3.listObjectsV2({
+    Bucket: BUCKET,
+    Prefix,
+  }).promise();
+
+  const files = (out.Contents || [])
+    .map(o => o.Key)
+    .filter(k => k && k !== Prefix);
+
+  return { success: true, files };
+}
+
+/** Create a zero-byte "folder" marker (optional for S3 but harmless) */
+async function createFolder({ folderPath }) {
+  const Key = ensureKey(folderPath, { isFolder: true });
+  await s3.putObject({ Bucket: BUCKET, Key, Body: '' }).promise();
+  return { success: true, key: Key };
+}
+
+/** Build a public URL that the frontend can consume.
+ * If your objects are private and you front them via the backend, you can instead
+ * return `/uploads/${ensureKey(s3KeyOrPath)}` to keep old paths.
+ */
+function movieFilePublicUrl(s3KeyOrPath /*, subFolder */) {
+  const key = ensureKey(s3KeyOrPath);
+  return `https://${BUCKET}.s3.${REGION}.amazonaws.com/${encodeURI(key)}`;
+}
+
+/** Delete and then verify with HeadObject so we only report success when the object is gone */
+async function deleteFile({ filePath }) {
+  const Key = ensureKey(filePath);
+
+  if (process.env.DEBUG_DELETE === '1') {
+    console.log('[s3.delete] incoming=', filePath, 'normalized Key=', Key);
+  }
+
+  await s3.deleteObject({ Bucket: BUCKET, Key }).promise();
+
+  // Verify. S3 delete is idempotent; 204 doesn't mean it existed.
+  try {
+    await s3.headObject({ Bucket: BUCKET, Key }).promise();
+    if (process.env.DEBUG_DELETE === '1') console.log('[s3.delete] still exists:', Key);
+    return { success: false, key: Key };
+  } catch (err) {
+    const code = err && (err.code || err.name);
+    const status = err && (err.statusCode || err.$metadata?.httpStatusCode);
+    const notFound = code === 'NotFound' || code === 'NoSuchKey' || status === 404;
+    if (notFound) {
+      if (process.env.DEBUG_DELETE === '1') console.log('[s3.delete] verified deleted:', Key);
+      return { success: true, key: Key };
+    }
+    // unexpected error (permissions, transient network, etc.)
+    if (process.env.DEBUG_DELETE === '1') console.log('[s3.delete] head error:', code || status, err?.message);
+    throw err;
+  }
+}
+
+module.exports = {
+  getFolderContent,
+  createFolder,
+  movieFilePublicUrl,
+  deleteFile,
+};
