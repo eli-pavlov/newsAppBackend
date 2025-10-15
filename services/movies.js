@@ -59,11 +59,54 @@ getMoviesList = async function (userId) {
     return [...commonMovies, ...userMovies];
 }
 
+/**
+ * Normalize client-provided file identifier (URL/path/name) to an S3 key
+ * relative to the movies folder.
+ */
+function normalizeKey(input, moviesFolder) {
+    try {
+        let key = String(input || '').trim();
+
+        // If it's a full URL, take the path
+        if (/^https?:\/\//i.test(key)) {
+            try {
+                const u = new URL(key);
+                key = u.pathname || key;
+            } catch (_) {}
+        }
+
+        // Remove leading slash and decode percent-encoding
+        key = key.replace(/^\/+/, '');
+        try { key = decodeURIComponent(key); } catch (_) {}
+
+        // Drop leading 'uploads/' if present
+        if (key.toLowerCase().startsWith('uploads/')) {
+            key = key.slice('uploads/'.length);
+        }
+
+        // If key already contains the moviesFolder, cut everything up to and including it
+        const mf = String(moviesFolder || '').replace(/^\/+|\/+$/g, '');
+        if (mf) {
+            const pos = key.toLowerCase().indexOf((mf + '/').toLowerCase());
+            if (pos >= 0) {
+                key = key.slice(pos + mf.length + 1);
+            }
+        }
+
+        // Final cleanup
+        return key.replace(/^\/+/, '');
+    } catch (e) {
+        return String(input || '').trim();
+    }
+}
+
 deleteMovieFile = async function (fileName, subFolder) {
     try {
-        const filePath = getMoviesFolder(subFolder) + fileName;
+        const moviesFolder = getMoviesFolder(subFolder);
+        const rel = normalizeKey(fileName, moviesFolder);
+        const filePath = `${moviesFolder}/${rel}`.replace(/\+/g, '/');
 
-        await storage.deleteFile({filePath: filePath});
+        await storage.deleteFile({ filePath });
 
         return { success: true };
     }
