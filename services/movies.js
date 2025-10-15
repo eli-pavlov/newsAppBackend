@@ -44,9 +44,10 @@ function normalizeKey(input, moviesFolder) {
   }
 }
 
+/** List files from the (optional) subFolder */
 async function getFolderMoviesList(subFolder = null) {
   try {
-    const moviesFolderPath = getMoviesFolder(subFolder);
+    const moviesFolderPath = getMoviesFolder(subFolder); // ends with "/"
     const folderContent = await storage.getFolderContent({ folderPath: moviesFolderPath });
 
     const files = [];
@@ -77,30 +78,49 @@ async function getFolderMoviesList(subFolder = null) {
   }
 }
 
+/** Union of common movies + user movies */
 async function getMoviesList(userId) {
   const commonMovies = await getFolderMoviesList();
   const userMovies = await getFolderMoviesList(userId);
   return [...commonMovies, ...userMovies];
 }
 
+/** Delete: try ABSOLUTE key first (includes user subfolder), then RELATIVE. */
 async function deleteMovieFile(fileName, subFolder) {
   try {
-    const moviesFolder = getMoviesFolder(subFolder);      // e.g. "movies/1/"
-    const rel = normalizeKey(fileName, moviesFolder);     // e.g. "My File.mp4"
+    const moviesFolder = getMoviesFolder(subFolder);  // e.g. "movies/1/"
+    const rel = normalizeKey(fileName, moviesFolder); // e.g. "1.5MB video.mp4"
+    const abs = `${moviesFolder}${rel}`.replace(/\/{2,}/g, '/'); // "movies/1/1.5MB video.mp4"
 
     if (process.env.DEBUG_DELETE === '1') {
       console.log('[movies.delete] input=', fileName);
       console.log('[movies.delete] moviesFolder=', moviesFolder);
       console.log('[movies.delete] relKey=', rel);
+      console.log('[movies.delete] absKey=', abs);
     }
 
-    const r = await storage.deleteFile({ filePath: rel });
-
-    if (process.env.DEBUG_DELETE === '1') {
-      console.log('[movies.delete] storage.deleteFile =>', r);
+    // Absolute first
+    let ok = false;
+    try {
+      const r1 = await storage.deleteFile({ filePath: abs });
+      ok = r1?.success === true;
+      if (process.env.DEBUG_DELETE === '1') console.log('[movies.delete] abs result=', r1);
+    } catch (e) {
+      if (process.env.DEBUG_DELETE === '1') console.log('[movies.delete] abs threw:', e?.message);
     }
 
-    return { success: !!r?.success };
+    // Then relative (for compatibility with any old uploads under root)
+    if (!ok) {
+      try {
+        const r2 = await storage.deleteFile({ filePath: rel });
+        ok = r2?.success === true;
+        if (process.env.DEBUG_DELETE === '1') console.log('[movies.delete] rel result=', r2);
+      } catch (e) {
+        if (process.env.DEBUG_DELETE === '1') console.log('[movies.delete] rel threw:', e?.message);
+      }
+    }
+
+    return { success: ok };
   } catch (e) {
     return { success: false, message: e.message };
   }
