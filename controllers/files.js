@@ -3,9 +3,75 @@ const { envVar } = require('../services/env');
 const { deleteMovieFile } = require('../services/movies');
 const storage = require('../services/storage');
 
+function firstNonEmpty(...vals) {
+    for (const v of vals) {
+        if (v !== undefined && v !== null && String(v).trim() !== '') return v;
+    }
+    return undefined;
+}
+
+function parseUploadRequest(req) {
+    // Support JSON body, querystring, or headers (for FormData/edge cases)
+    const body = (req && req.body) ? req.body : {};
+    const query = (req && req.query) ? req.query : {};
+    const hdr = (req && req.headers) ? req.headers : {};
+
+    const fileName = firstNonEmpty(
+        body.fileName, body.filename, body.name,
+        query.fileName, query.filename, query.name,
+        hdr['x-file-name'], hdr['x-filename']
+    );
+
+    const subFolderRaw = firstNonEmpty(
+        body.subFolder, query.subFolder, hdr['x-sub-folder']
+    );
+    const subFolder = (subFolderRaw === 'null' || subFolderRaw === 'undefined') ? null : subFolderRaw;
+
+    // Prefer explicit contentType; fall back to header if client passed it there; otherwise default
+    const explicitCT = firstNonEmpty(
+        body.contentType, body.mimeType,
+        query.contentType, query.mimeType,
+        hdr['x-content-type']
+    );
+    // NOTE: req.headers['content-type'] may be multipart/form-data, which is NOT the file's type.
+    // We only use it if nothing else was provided and it's not a multipart envelope.
+    let contentType = explicitCT;
+    if (!contentType) {
+        const hct = hdr['content-type'];
+        if (hct && !/^multipart\/form-data/i.test(hct)) {
+            contentType = hct.split(';')[0];
+        }
+    }
+    if (!contentType) contentType = 'application/octet-stream';
+
+    return { fileName, subFolder, contentType };
+}
+
+function parseFinalizeRequest(req) {
+    const body = (req && req.body) ? req.body : {};
+    const query = (req && req.query) ? req.query : {};
+    const hdr = (req && req.headers) ? req.headers : {};
+
+    const objectKey = firstNonEmpty(
+        body.objectKey, query.objectKey, hdr['x-object-key']
+    );
+
+    const fileName = firstNonEmpty(
+        body.fileName, body.filename, body.name,
+        query.fileName, query.filename, query.name,
+        hdr['x-file-name'], hdr['x-filename']
+    );
+
+    const subFolderRaw = firstNonEmpty(
+        body.subFolder, query.subFolder, hdr['x-sub-folder']
+    );
+    const subFolder = (subFolderRaw === 'null' || subFolderRaw === 'undefined') ? null : subFolderRaw;
+
+    return { objectKey, fileName, subFolder };
+}
+
 class filesController {
     constructor() {
-        // lazy init S3 to avoid affecting DISK mode
         this._s3 = null;
     }
 
@@ -20,7 +86,7 @@ class filesController {
         return this._s3;
     }
 
-    // Legacy upload endpoint (still used in DISK mode). In AWS_S3 mode prefer /files/presign + direct browser upload.
+    // Legacy upload (kept for DISK mode)
     async upload(req, res) {
         try {
             const result = await storage.uploadFile(req, res);
@@ -48,7 +114,7 @@ class filesController {
         }
     }
 
-    // NEW: request a pre-signed URL for direct S3 upload
+    // New: presign for direct S3 PUT
     async presign(req, res) {
         try {
             const storageType = envVar('STORAGE_TYPE');
@@ -56,7 +122,7 @@ class filesController {
                 return res.status(400).json({ success: false, message: 'Presign is only available when STORAGE_TYPE=AWS_S3' });
             }
 
-            const { fileName, contentType='application/octet-stream', subFolder=null } = req.body || {};
+            const { fileName, subFolder, contentType } = parseUploadRequest(req);
             if (!fileName) {
                 return res.status(400).json({ success: false, message: 'fileName is required' });
             }
@@ -70,12 +136,12 @@ class filesController {
                 Bucket: bucket,
                 Key: key,
                 ContentType: contentType,
-                Expires: 900, // 15 minutes
+                Expires: 900, // 15 min
             });
 
             const publicUrl = `https://${bucket}.s3.${region}.amazonaws.com/${key}`;
 
-            res.status(200).json({
+            return res.status(200).json({
                 success: true,
                 url,
                 method: 'PUT',
@@ -88,7 +154,7 @@ class filesController {
         }
     }
 
-    // OPTIONAL: verify object exists and respond with standard shape
+    // Verify uploaded object and return normalized shape
     async finalize(req, res) {
         try {
             const storageType = envVar('STORAGE_TYPE');
@@ -96,7 +162,7 @@ class filesController {
                 return res.status(400).json({ success: false, message: 'Finalize is only available when STORAGE_TYPE=AWS_S3' });
             }
 
-            const { objectKey, fileName, subFolder=null } = req.body || {};
+            const { objectKey, fileName, subFolder } = parseFinalizeRequest(req);
             if (!objectKey) {
                 return res.status(400).json({ success: false, message: 'objectKey is required' });
             }
@@ -104,8 +170,13 @@ class filesController {
             const bucket = envVar('AWS_BUCKET');
             const region = envVar('AWS_REGION');
 
-            // HEAD the object; if missing, AWS throws
-            await this.s3().headObject({ Bucket: bucket, Key: objectKey }).promise();
+            // HEAD the object; throw if missing
+            const head = await this.s3().headObject({ Bucket: bucket, Key: objectKey }).promise();
+
+            // Optional: reject zero-byte "ghost" objects
+            if (!head.ContentLength || head.ContentLength === 0) {
+                return res.status(409).json({ success: false, message: 'Uploaded object is empty (0 bytes). Please retry.' });
+            }
 
             const publicUrl = `https://${bucket}.s3.${region}.amazonaws.com/${objectKey}`;
 
@@ -113,7 +184,7 @@ class filesController {
                 success: true,
                 url: publicUrl,
                 file_name: fileName || (objectKey.split('/').pop()),
-                subFolder
+                subFolder: subFolder ?? null
             });
         } catch (e) {
             const msg = (e && e.code === 'NotFound') ? 'Object not found in S3 (upload may have failed)' : e.message;
