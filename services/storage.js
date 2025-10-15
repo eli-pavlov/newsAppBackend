@@ -1,15 +1,17 @@
-// services/storage.js
 const { envVar } = require('./env');
 
-let StorageClass;
-const type = String(envVar('STORAGE_TYPE') || '').toUpperCase();
+let storage_class = null;
 
-if (type === 'AWS_S3' || type === 'S3') {
-  StorageClass = require('./storage_aws_s3');
-} else {
-  StorageClass = require('./storage_disk');
+switch (envVar("STORAGE_TYPE")) {
+    case 'AWS_S3':
+        storage_class = require('./storage_aws_s3')
+        break;
+
+    case 'DISK':
+        storage_class = require('./storage_disk')
+        break;
+
 }
+const storage = new storage_class();
 
-const storage = new StorageClass();
-
-module.exports = storage;
+module.exports = storage

@@ -1,89 +1,96 @@
-// services/storage_disk.js
-// Local disk adapter (kept for parity; prod uses S3).
-
 const fs = require('fs/promises');
-const path = require('path');
+const STORAGE_BASE = require('./storage_base');
 const { envVar } = require('./env');
+const path = require('path');
+const multer = require("multer");
 
-function ensureTrailingSlash(p) {
-  return p.endsWith(path.sep) ? p : p + path.sep;
-}
+class STORAGE_DISK extends STORAGE_BASE {
+    constructor() {
+        super();
 
-function isSubPath(parent, candidate) {
-  const rel = path.relative(parent, candidate);
-  return !!rel && !rel.startsWith('..') && !path.isAbsolute(rel);
-}
+        this.rootPath = envVar('DISK_ROOT_PATH');
 
-module.exports = class DiskStorage {
-  constructor() {
-    const root = envVar('DISK_ROOT_PATH') || '/data';
-    this.root = path.resolve(root);
-  }
-
-  async createFolder({ folderPath }) {
-    const p = path.resolve(this.root, folderPath || '');
-    if (!isSubPath(this.root, p) && p !== this.root) throw new Error('Invalid folderPath');
-    await fs.mkdir(p, { recursive: true });
-    return { success: true, path: p };
-  }
-
-  async getFolderContent({ folderPath }) {
-    const base = path.resolve(this.root, folderPath || '');
-    if (!isSubPath(this.root, base) && base !== this.root) throw new Error('Invalid folderPath');
-
-    try {
-      const out = [];
-      const rootWithSlash = ensureTrailingSlash(base);
-
-      async function walk(dir) {
-        const entries = await fs.readdir(dir, { withFileTypes: true });
-        for (const e of entries) {
-          const full = path.join(dir, e.name);
-          if (e.isDirectory()) {
-            await walk(full);
-          } else {
-            out.push(full);
-          }
-        }
-      }
-
-      await walk(base);
-
-      // Return keys relative to disk root (mimic S3-style keys)
-      const keys = out.map(f => {
-        const rel = path.relative(base, f).split(path.sep).join('/');
-        const prefix = (folderPath || '').replace(/^\/+|\/+$/g, '');
-        return prefix ? `${prefix}/${rel}` : rel;
-      });
-
-      return { success: true, files: keys };
-    } catch (e) {
-      return { success: false, message: e.message };
+        this.upload = multer({ storage: multer.memoryStorage() });
     }
-  }
 
-  async uploadFile({ folderPath, fileName, body, buffer, stream /*, mimetype*/ }) {
-    const content = body ?? buffer ?? null;
-    if (!content) throw new Error('No file content provided');
+    filePublicPath(filePath) {
+        return path.join(this.rootPath, filePath);
+    }
 
-    const dir = path.resolve(this.root, folderPath || '');
-    if (!isSubPath(this.root, dir) && dir !== this.root) throw new Error('Invalid folderPath');
+    movieFilePublicPath(filePath, subFolder = null) {
+        return this.filePublicPath(envVar('MOVIES_FOLDER') + (subFolder ? '/' + subFolder : '') + '/' + filePath);
+    }
 
-    await fs.mkdir(dir, { recursive: true });
-    const full = path.join(dir, fileName);
-    await fs.writeFile(full, content);
-    return { success: true, path: full };
-  }
+    filePublicUrl(filePath) {
+        return 'http://localhost:' + (String(envVar('APP_PORT')) + '/' + filePath).replaceAll('//', '/');
+    }
 
-  async deleteFile({ filePath }) {
-    const full = path.resolve(this.root, filePath || '');
-    if (!isSubPath(this.root, full) && full !== this.root) throw new Error('Invalid filePath');
-    await fs.rm(full, { force: true });
-    return { success: true };
-  }
+    movieFilePublicUrl(fileName, subFolder = null) {
+        return this.filePublicUrl(envVar('MOVIES_FOLDER') + (subFolder ? '/' + subFolder : '') + '/' + fileName);
+    }
 
-  // For disk we can only return a relative path; the frontend typically uses the API
-  movieFilePublicUrl(key) {
-    return `/public/${String(key).replace(/^\/+/, '')}`;
-  }
-};
+    async createFolder(params) {
+        try {
+            await fs.mkdir(this.filePublicPath(params.folderPath), { recursive: true });
+
+            return { success: true };
+        }
+        catch (err) {
+            return { success: false, message: err.message };
+        }
+    }
+
+    async getFolderContent(params) {
+        try {
+            const data = await fs.readdir(this.filePublicPath(params.folderPath), { withFileTypes: true });
+
+            const folderContent = data.filter(f => f.isFile()).map(item => item.name);
+
+            return { success: true, files: folderContent };
+        }
+        catch (err) {
+            return { success: false, message: err.message };
+        }
+    }
+
+    async deleteFile(params) {
+        try {
+            await fs.unlink(this.filePublicPath(params.filePath, params.subFolder));
+
+            return { success: true };
+        }
+        catch (err) {
+            return { success: false, message: err.message };
+        }
+    }
+
+    async uploadFile(req, res) {
+        return new Promise((resolve, reject) => {
+            this.upload.single('file')(req, res, async (e) => {
+                if (e) {
+                    return reject({ success: false, message: e.message });
+                }
+
+                const filePath = this.movieFilePublicPath(req.body.subFolder + '/' + req.file.originalname);
+                await fs.writeFile(filePath, req.file.buffer);
+
+                try {
+                    return resolve({
+                        success: true,
+                        message: 'The file was uploaded successfully.',
+                        url: this.movieFilePublicUrl(req.file.originalname, req.body.subFolder),
+                        file_name: req.file.originalname,
+                        subFolder:req.body.subFolder,
+                        times:1,
+                        deletable: true
+                    })
+                }
+                catch (e) {
+                    return reject({ success: false, message: e.message })
+                }
+            });
+        })
+    }
+}
+
+module.exports = STORAGE_DISK

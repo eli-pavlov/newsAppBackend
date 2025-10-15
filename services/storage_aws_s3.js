@@ -1,150 +1,163 @@
-// services/storage_aws_s3.js
-// S3 adapter with a small, stable API used by the app.
-
 const AWS = require('aws-sdk');
-const path = require('path');
+const STORAGE_BASE = require('./storage_base');
 const { envVar } = require('./env');
+const multer = require("multer");
+const fs = require("fs");
 
-function cleanKey(k) {
-  return String(k || '')
-    .replace(/^\/+/, '')        // no leading "/"
-    .replace(/\/{2,}/g, '/');   // collapse double slashes
-}
+class STORAGE_S3 extends STORAGE_BASE {
+    constructor() {
+        super();
 
-function joinKey(prefix, part) {
-  const p = String(prefix || '').replace(/\/+$/,'');
-  const q = String(part || '').replace(/^\/+/,'');
-  return cleanKey(`${p}/${q}`);
-}
-
-module.exports = class S3Storage {
-  constructor() {
-    const region = envVar('AWS_REGION');
-    const accessKeyId = envVar('AWS_ACCESS_KEY_ID');
-    const secretAccessKey = envVar('AWS_SECRET_ACCESS_KEY');
-    const bucket = envVar('AWS_BUCKET');
-
-    if (!bucket) {
-      throw new Error('AWS_BUCKET is not set');
-    }
-
-    AWS.config.update({
-      region,
-      credentials: accessKeyId && secretAccessKey ? { accessKeyId, secretAccessKey } : undefined
-    });
-
-    this.s3 = new AWS.S3({ signatureVersion: 'v4' });
-    this.bucket = bucket;
-    this.publicBase = envVar('AWS_PUBLIC_BASE_URL'); // optional CDN/base like https://cdn.example.com
-  }
-
-  // Create a logical "folder": we just write a .keep object under that prefix
-  async createFolder({ folderPath }) {
-    const prefix = cleanKey(String(folderPath || ''));
-    const key = prefix.endsWith('/') ? `${prefix}.keep` : `${prefix}/.keep`;
-    await this.s3.putObject({
-      Bucket: this.bucket,
-      Key: key,
-      Body: '',
-      ContentType: 'application/octet-stream'
-    }).promise();
-    return { success: true, key };
-  }
-
-  async getFolderContent({ folderPath }) {
-    const prefix = cleanKey(String(folderPath || ''));
-    const normalized = prefix.endsWith('/') ? prefix : `${prefix}/`;
-
-    let ContinuationToken = undefined;
-    const files = [];
-
-    try {
-      do {
-        const res = await this.s3.listObjectsV2({
-          Bucket: this.bucket,
-          Prefix: normalized,
-          ContinuationToken
-        }).promise();
-
-        (res.Contents || []).forEach(obj => {
-          const k = String(obj.Key || '');
-          // Skip placeholder files
-          if (k.endsWith('/.keep')) return;
-          // Return full keys relative to bucket root (what movies.js expects)
-          files.push(k);
+        this.s3 = new AWS.S3({
+            accessKeyId: envVar('AWS_ACCESS_KEY_ID'),
+            secretAccessKey: envVar('AWS_SECRET_ACCESS_KEY'),
+            region: envVar('AWS_REGION')
         });
 
-        ContinuationToken = res.IsTruncated ? res.NextContinuationToken : undefined;
-      } while (ContinuationToken);
+        this.publicUrl = `https://${envVar('AWS_BUCKET')}.s3.${envVar('AWS_REGION')}.amazonaws.com`;
 
-      return { success: true, files };
-    } catch (e) {
-      return { success: false, message: e.message };
-    }
-  }
+        // memory upload
+        // this.upload = multer({ storage: multer.memoryStorage() });
 
-  /**
-   * Upload a file.
-   * Accepts one of: body, buffer, stream. (mimetype optional)
-   */
-  async uploadFile({ folderPath, fileName, body, buffer, stream, mimetype }) {
-    const content =
-      body ?? buffer ?? stream ?? null;
-
-    if (!content) {
-      throw new Error('No file content provided');
+        // disk upload
+        this.upload = multer({ dest: "uploads/" });
     }
 
-    const key = joinKey(folderPath, fileName);
-
-    await this.s3.putObject({
-      Bucket: this.bucket,
-      Key: key,
-      Body: content,
-      ContentType: mimetype || 'application/octet-stream',
-      ACL: 'public-read' // adjust if you don’t want public
-    }).promise();
-
-    return { success: true, key };
-  }
-
-  /**
-   * Delete a file by absolute bucket key path.
-   */
-  async deleteFile({ filePath }) {
-    const key = cleanKey(filePath);
-
-    if (process.env.DEBUG_DELETE === '1') {
-      console.log('[s3.delete] incoming=', filePath, '→', key);
+    filePublicUrl(filePath) {
+        return this.publicUrl + ('/' + filePath).replaceAll('//', '/');
     }
 
-    await this.s3.deleteObject({
-      Bucket: this.bucket,
-      Key: key
-    }).promise();
-
-    if (process.env.DEBUG_DELETE === '1') {
-      console.log('[s3.delete] verified deleted:', key);
+    movieFilePublicUrl(fileName, subFolder = null) {
+        return this.filePublicUrl(fileName);
     }
 
-    return { success: true, key };
-  }
+    getActionParams(params, extraData = {}) {
+        let actionParams = {
+            Bucket: params?.bucketName ? params.bucketName : envVar('AWS_BUCKET'),
+        };
 
-  /**
-   * Build a public URL for a given key (or key relative to folder).
-   */
-  movieFilePublicUrl(key) {
-    const clean = cleanKey(key);
-    if (this.publicBase) {
-      // Respect explicit CDN/base
-      return `${this.publicBase.replace(/\/+$/,'')}/${encodeURIComponent(clean).replace(/%2F/g, '/')}`;
+        return { ...actionParams, ...extraData };
     }
-    // Default S3 public URL
-    const region = envVar('AWS_REGION');
-    if (region && !region.startsWith('cn-')) {
-      return `https://${this.bucket}.s3.${region}.amazonaws.com/${encodeURIComponent(clean).replace(/%2F/g,'/')}`;
+
+    async createFolder(params) {
+        const actionParams = this.getActionParams(params, { Key: params.folderPath + '/', Body: '' });  // zero-byte object
+
+        try {
+            await this.s3.putObject(actionParams).promise();
+
+            return { success: true };
+        }
+        catch (err) {
+            return { success: false, message: err.message };
+        }
     }
-    // Generic fallback
-    return `https://${this.bucket}.s3.amazonaws.com/${encodeURIComponent(clean).replace(/%2F/g,'/')}`;
-  }
-};
+
+    async getFolderContent(params) {
+        const actionParams = this.getActionParams(params, { Prefix: params.folderPath, Delimiter: '/' });  // Delimiter is optional, to get folder-like behavior
+
+        try {
+            const data = await this.s3.listObjectsV2(actionParams).promise();
+
+            // data.Contents is an array of objects representing files
+            const folderContent = data.Contents.map(item => item.Key);
+
+            return { success: true, files: folderContent };
+        }
+        catch (err) {
+            return { success: false, message: err.message };
+        }
+    }
+
+    async deleteFile(params) {
+        const actionParams = this.getActionParams(params, { Key: params.filePath });
+
+        try {
+            await this.s3.deleteObject(actionParams).promise();
+
+            return { success: true };
+        }
+        catch (err) {
+            return { success: false, message: err.message };
+        }
+    }
+
+    // async uploadFileUsingMemory(req, res) {
+    //     return new Promise((resolve, reject) => {
+    //         this.upload.single('file')(req, res, async (e) => {
+    //             if (e) {
+    //                 return reject({ success: false, message: e.message });
+    //             }
+
+    //             try {
+    //                 const params = {
+    //                     Bucket: envVar('AWS_BUCKET'),
+    //                     Key: envVar('MOVIES_FOLDER') + '/' + req.body.subFolder + '/' + req.file.originalname,
+    //                     Body: req.file.buffer,
+    //                     ContentType: req.file.mimetype
+    //                 };
+
+    //                 await this.s3.upload(params).promise();
+
+    //                 return resolve({
+    //                     success: true,
+    //                     message: 'The file was uploaded successfully.',
+    //                     url: this.filePublicUrl(params.Key),
+    //                     file_name: req.file.originalname,
+    //                     subFolder:req.body.subFolder,
+    //                     times:1,
+    //                     deletable: true
+    //                 })
+    //             }
+    //             catch (e) {
+    //                 return reject({ success: false, message: e.message })
+    //             }
+    //         });
+    //     })
+    // }
+
+    async uploadFile(req, res) {
+        return new Promise((resolve, reject) => {
+            this.upload.single('file')(req, res, async (e) => {
+                if (e) {
+                    return reject({ success: false, message: e.message });
+                }
+
+                try {
+                    const fileStream = fs.createReadStream(req.file.path);
+
+                    const params = {
+                        Bucket: envVar('AWS_BUCKET'),
+                        Key: envVar('MOVIES_FOLDER') + '/' + req.body.subFolder + '/' + req.file.originalname,
+                        // Body: req.file.buffer, : memory upload
+                        Body: fileStream,
+                        ContentType: req.file.mimetype
+                    };
+
+                    await this.s3.upload(params).promise();
+
+                    return resolve({
+                        success: true,
+                        message: 'The file was uploaded successfully.',
+                        url: this.filePublicUrl(params.Key),
+                        file_name: req.file.originalname,
+                        subFolder: req.body.subFolder,
+                        times: 1,
+                        deletable: true
+                    })
+                }
+                catch (e) {
+                    return reject({ success: false, message: e.message })
+                }
+                finally {
+                    fs.unlink(req.file.path, (err) => {
+                        if (err) {
+                            console.error("Failed to remove file: " + req.file.path, err);
+                        }
+                    });
+                }
+            });
+        })
+    }
+}
+
+module.exports = STORAGE_S3
