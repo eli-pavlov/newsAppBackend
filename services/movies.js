@@ -1,158 +1,168 @@
-// services/movies.js
+const fs = require('fs/promises');
+const { envVar } = require('../services/env');
+const storage = require('../services/storage');
 
-const path = require("path");
+getMoviesFolder = function (subFolder = null) {
+    const moviesFolder = envVar('MOVIES_FOLDER');
 
-// NOTE: keep the same import you already use for your storage adapter.
-// If your original file had a different path, keep it.
-// Common locations are: "../services/storage", "../utils/storage", "./storage"
-const storage = require("../services/storage");
-
-/** Helper: trim slashes */
-function trimSlashes(s) {
-  return String(s || "").replace(/^\/+|\/+$/g, "");
+    return `${moviesFolder}/${subFolder ? subFolder + '/' : ''}`;
 }
 
-/** Helper: return the folder where movies live (keeps current behavior) */
-function getMoviesFolder(subFolder) {
-  // If your project already has this function, keep that one.
-  // Fallback default:
-  const base = "movies";
-  if (!subFolder) return base;
-  return trimSlashes(`${base}/${subFolder}`);
+createUserMoviesFolder = async function (userId) {
+    const folderPath = getMoviesFolder(userId);
+
+    await storage.createFolder({ folderPath: folderPath });
+}
+
+getFolderMoviesList = async function (subFolder = null) {
+    try {
+        const moviesFolderPath = getMoviesFolder(subFolder);
+
+        const folderContent = await storage.getFolderContent({ folderPath: moviesFolderPath });
+
+        let files = []
+        const validExt = envVar("MOVIES_EXT").split(",");
+
+        if (folderContent.success) {
+            folderContent.files.forEach(f => {
+                const fileName = af.split('/').pop();  // get the last splited item
+                const fileExt = fileName.split('.').pop();
+
+                if (fileName !== fileExt) {
+                    if (validExt.includes(fileExt))
+                        files.push(
+                            {
+                                name: fileName,
+                                url: storage.movieFilePublicUrl(f, subFolder),
+                                subFolder: subFolder,
+                                deletable: (subFolder !== null)
+                            }
+                        );
+                }
+            })
+        }
+
+        return files;
+    }
+    catch (e) {
+        console.log(e.message);
+
+        return [];
+    }
+}
+
+getMoviesList = async function (userId) {
+    let commonMovies = await this.getFolderMoviesList();
+
+    let userMovies = await getFolderMoviesList(userId);
+
+    return [...commonMovies, ...userMovies];
 }
 
 /**
- * Normalize client-provided file identifier (URL/path/name) to a RELATIVE key
- * (i.e., something that can be appended after moviesFolder).
- *
- * Accepts:
- *   - full URL ("https://site/uploads/movies/xyz.mp4")
- *   - absolute path ("/uploads/movies/xyz.mp4")
- *   - "uploads/movies/xyz.mp4"
- *   - "movies/xyz.mp4"
- *   - "xyz.mp4"
+ * Normalize client-provided file identifier (URL/path/name) to an S3 key
+ * relative to the movies folder.
  */
-function normalizeRelativeKey(input, moviesFolder) {
-  let key = String(input || "").trim();
-
-  // 1) If it looks like a URL, use the pathname
-  if (/^https?:\/\//i.test(key)) {
+function normalizeKey(input, moviesFolder) {
     try {
-      const u = new URL(key);
-      key = u.pathname || key;
-    } catch (_) {
-      /* ignore */
-    }
-  }
+        let key = String(input || '').trim();
 
-  // 2) Drop leading slash, decode percent-encoding
-  key = key.replace(/^\/+/, "");
-  try {
-    key = decodeURIComponent(key);
-  } catch (_) {
-    /* ignore */
-  }
+        // If it's a full URL, take the path
+        if (/^https?:\/\//i.test(key)) {
+            try {
+                const u = new URL(key);
+                key = u.pathname || key;
+            } catch (_) {}
+        }
 
-  // 3) Strip a leading "uploads/" if present (we will try both variants later)
-  if (key.toLowerCase().startsWith("uploads/")) {
-    key = key.slice("uploads/".length);
-  }
+        // Remove leading slash and decode percent-encoding
+        key = key.replace(/^\/+/, '');
+        try { key = decodeURIComponent(key); } catch (_) {}
 
-  // 4) If the key already contains the movies folder, remove it so key is RELATIVE
-  const mf = trimSlashes(moviesFolder || "");
-  if (mf) {
-    const needle = (mf + "/").toLowerCase();
-    const pos = key.toLowerCase().indexOf(needle);
-    if (pos >= 0) {
-      key = key.slice(pos + needle.length);
-    }
-  }
+        // Drop leading 'uploads/' if present
+        if (key.toLowerCase().startsWith('uploads/')) {
+            key = key.slice('uploads/'.length);
+        }
 
-  // 5) Return clean relative piece
-  return trimSlashes(key);
-}
+        // If key already contains the moviesFolder, cut everything up to and including it
+        const mf = String(moviesFolder || '').replace(/^\/+|\/+$/g, '');
+        if (mf) {
+            const pos = key.toLowerCase().indexOf((mf + '/').toLowerCase());
+            if (pos >= 0) {
+                key = key.slice(pos + mf.length + 1);
+            }
+        }
 
-/** Build the candidate *absolute* keys we will try to delete in S3. */
-function buildCandidateKeys(relativeKey, moviesFolder) {
-  const mf = trimSlashes(moviesFolder);
-  const rel = trimSlashes(relativeKey);
-
-  const k1 = `${mf}/${rel}`;              // "movies/abc.mp4" or "movies/sub/abc.mp4"
-  const k2 = `uploads/${mf}/${rel}`;      // "uploads/movies/abc.mp4"
-  const k3 = rel;                         // Just in case the object was stored flat
-
-  // Also try space vs plus quirks (rare, but harmless)
-  const variants = new Set([k1, k2, k3]);
-  for (const k of [k1, k2, k3]) {
-    if (k.includes("+")) variants.add(k.replace(/\+/g, " "));
-    if (k.includes(" ")) variants.add(k.replace(/ /g, "+"));
-  }
-  return Array.from(variants).map(x => x.replace(/\/+/g, "/"));
-}
-
-/**
- * Call the storage adapter in a signature-agnostic way.
- * We try several common call shapes; the first non-throw is treated as success.
- */
-async function tryDeleteThroughAdapter(fullKey) {
-  const attempts = [
-    () => storage.deleteFile(fullKey),
-    () => storage.deleteFile({ filePath: fullKey }),
-    () => storage.deleteFile({ key: fullKey }),
-  ];
-
-  for (const attempt of attempts) {
-    try {
-      const res = await attempt();
-      // If the adapter returns a boolean-like or '{ success: ... }', consider it OK
-      if (res === undefined || res === null) return true;
-      if (typeof res === "boolean") return res;
-      if (typeof res === "object" && "success" in res) return !!res.success;
-      // Some S3 wrappers return a metadata object; no error => assume success
-      return true;
+        // Final cleanup
+        return key.replace(/^\/+/, '');
     } catch (e) {
-      // keep trying other signatures
+        return String(input || '').trim();
     }
-  }
-  return false;
 }
 
-/**
- * PUBLIC: deleteMovieFile
- * Keeps response shape {success: boolean} so the UI continues to work.
- */
 async function deleteMovieFile(fileName, subFolder) {
-  const moviesFolder = getMoviesFolder(subFolder);
-  const rel = normalizeRelativeKey(fileName, moviesFolder);
-  const candidates = buildCandidateKeys(rel, moviesFolder);
+  // Use the app’s existing helpers/vars:
+  const moviesFolder = (typeof getMoviesFolder === 'function')
+    ? getMoviesFolder(subFolder)
+    : 'movies';
 
-  // Helpful logs in the pod (won't change API response)
-  console.warn(
-    "[files.delete] input=%s moviesFolder=%s rel=%s candidates=%j",
-    fileName,
-    moviesFolder,
-    rel,
-    candidates
-  );
+  // --- normalize whatever the UI sent (URL, /uploads/..., movies/..., bare name) to a RELATIVE piece
+  let rel = String(fileName || '').trim();
 
+  // If it's a URL, take pathname
+  if (/^https?:\/\//i.test(rel)) {
+    try { rel = new URL(rel).pathname || rel; } catch (_) {}
+  }
+
+  // strip leading slash, decode %2F etc.
+  rel = rel.replace(/^\/+/, '');
+  try { rel = decodeURIComponent(rel); } catch (_) {}
+
+  // drop leading "uploads/"
+  rel = rel.replace(/^uploads\//i, '');
+
+  // drop leading "<moviesFolder>/"
+  const mf = String(moviesFolder || 'movies').replace(/^\/+|\/+$/g, '');
+  const mfRe = new RegExp('^' + mf.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/','i');
+  rel = rel.replace(mfRe, '');
+
+  // Build candidate absolute keys to try (covers both layouts you’ve used)
+  const candidates = new Set([
+    `${mf}/${rel}`,             // movies/abc.mp4
+    `uploads/${mf}/${rel}`,     // uploads/movies/abc.mp4
+  ]);
+
+  // Space/plus edge cases (harmless to try)
+  for (const k of Array.from(candidates)) {
+    if (k.includes('+')) candidates.add(k.replace(/\+/g, ' '));
+    if (k.includes(' ')) candidates.add(k.replace(/ /g, '+'));
+  }
+
+  // Helpful logs (pod logs only)
+  console.warn('[files.delete] input=%s mf=%s rel=%s candidates=%j', fileName, mf, rel, Array.from(candidates));
+
+  // Try each candidate with your existing storage adapter call
   for (const key of candidates) {
-    const ok = await tryDeleteThroughAdapter(key);
-    if (ok) {
-      console.warn("[files.delete] deleted key=%s", key);
+    try {
+      // NOTE: keep the same adapter call you already use here:
+      // e.g. await storage.deleteFile(key)
+      // If your original code was deleteObject({ Key: key }) or similar, keep that line instead.
+      await storage.deleteFile(key);
+
+      console.warn('[files.delete] deleted key=%s', key);
       return { success: true };
+    } catch (e) {
+      // try next
     }
   }
 
-  console.error("[files.delete] FAILED for input=%s (tried=%j)", fileName, candidates);
+  console.error('[files.delete] FAILED for input=%s (tried=%j)', fileName, Array.from(candidates));
   return { success: false };
 }
 
-/* ------------------------------------------------------------------ */
-/* If this file also exports other functions in your original code,   */
-/* leave them as-is below. Only deleteMovieFile has to change.        */
-/* ------------------------------------------------------------------ */
-
 module.exports = {
-  deleteMovieFile,
-  // ... keep/append your other exports here (listMovieFiles, etc.)
-};
+    getMoviesFolder,
+    createUserMoviesFolder,
+    getMoviesList,
+    deleteMovieFile
+}
