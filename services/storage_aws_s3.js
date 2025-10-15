@@ -1,6 +1,6 @@
 const storage_base = require('./storage_base');
 const { envVar } = require('./env');
-const { S3Client, ListObjectsV2Command, DeleteObjectCommand } = require("@aws-sdk/client-s3");
+const AWS = require('aws-sdk');
 
 class storage_aws_s3 extends storage_base {
     constructor() {
@@ -14,31 +14,32 @@ class storage_aws_s3 extends storage_base {
             return;
         }
 
-        this.client = new S3Client({
+        // Configure AWS SDK v2
+        AWS.config.update({
             region: this.region,
-            credentials: {
-                accessKeyId: envVar('AWS_ACCESS_KEY_ID'),
-                secretAccessKey: envVar('AWS_SECRET_ACCESS_KEY'),
-            }
+            accessKeyId: envVar('AWS_ACCESS_KEY_ID'),
+            secretAccessKey: envVar('AWS_SECRET_ACCESS_KEY'),
         });
+
+        this.s3 = new AWS.S3();
     }
 
     async getFiles(subFolder = null) {
         try {
-            const folderPrefix = subFolder 
-                ? `${this.moviesFolderName}/${subFolder}/` 
+            const folderPrefix = subFolder
+                ? `${this.moviesFolderName}/${subFolder}/`
                 : `${this.moviesFolderName}/`;
 
-            const command = new ListObjectsV2Command({
+            const params = {
                 Bucket: this.bucket,
                 Prefix: folderPrefix,
-            });
+            };
 
-            const response = await this.client.send(command);
+            const response = await this.s3.listObjectsV2(params).promise();
             if (!response.Contents) {
                 return [];
             }
-            
+
             const files = response.Contents
                 .filter(c => !c.Key.endsWith('/')) // Exclude folder objects
                 .map(c => {
@@ -46,7 +47,6 @@ class storage_aws_s3 extends storage_base {
                     const fileName = keyParts[keyParts.length - 1];
                     const moviesIndex = keyParts.indexOf(this.moviesFolderName);
                     
-                    // Subfolder is what's between 'movies' and the filename
                     const sub = keyParts.length > moviesIndex + 2 ? keyParts.slice(moviesIndex + 1, -1).join('/') : null;
 
                     return {
@@ -64,23 +64,20 @@ class storage_aws_s3 extends storage_base {
     }
 
     async deleteFile(fileName, subFolder = null) {
+        // **FIX:** Construct the S3 key using forward slashes `/` explicitly.
+        let key = this.moviesFolderName;
+        if (subFolder) {
+            key += `/${subFolder}`;
+        }
+        key += `/${fileName}`;
+
+        const params = {
+            Bucket: this.bucket,
+            Key: key
+        };
+
         try {
-            // **FIX:** Construct the S3 key using forward slashes `/` explicitly.
-            // The previous logic might have used path.join(), which creates `\` on Windows,
-            // leading to an incorrect key for S3.
-            let key = this.moviesFolderName;
-            if (subFolder) {
-                key += `/${subFolder}`;
-            }
-            key += `/${fileName}`;
-
-            const command = new DeleteObjectCommand({
-                Bucket: this.bucket,
-                Key: key
-            });
-
-            await this.client.send(command);
-
+            await this.s3.deleteObject(params).promise();
             return { success: true, message: `File ${fileName} was deleted successfully.` };
         } catch (e) {
             console.error(`Failed to delete S3 object with key "${key}":`, e);
