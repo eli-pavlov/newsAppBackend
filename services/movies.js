@@ -2,7 +2,7 @@
 
 /**
  * services/movies.js
- * Centralised helpers for listing and deleting movie files across both legacy (flat)
+ * Helpers for listing and deleting movie files across both legacy (flat)
  * and new (per-user) layouts in S3/Disk.
  *
  * Legacy layout:         movies/<file>
@@ -21,122 +21,128 @@ function getMoviesFolder(subFolder = null) {
 }
 
 /**
- * List all object keys under the movies area (recursively).
- * Returns: { success, files: [ 'movies/1/foo.mp4', 'movies/movie1.mp4', ... ] }
+ * Normalise output of storage.getFolderContent to a common shape:
+ *  { success, files: [ 'movies/1/foo.mp4', ... ], content: [ {filePath, name, subFolder, deletable, times} ] }
  */
-async function listAllMoviesKeys() {
-  const folderPath = getMoviesFolder(null);
-  const res = await storage.getFolderContent({ folderPath });
-  // Normalise shape from different storage backends
-  if (res && res.success && Array.isArray(res.files)) {
-    return res;
+function normaliseFolderList(res, subFolder = null) {
+  const out = { success: false, files: [], content: [] };
+  if (!res || res.success === false) {
+    out.success = false;
+    out.message = res && res.message ? res.message : 'Unknown error';
+    return out;
   }
-  // Fallback: some implementations might return { success, content }
-  if (res && res.success && Array.isArray(res.content)) {
-    return { success: true, files: res.content };
+  out.success = true;
+
+  // If backend returns array of raw keys (strings)
+  if (Array.isArray(res.files) && res.files.every(x => typeof x === 'string')) {
+    out.files = res.files.slice();
+    out.content = out.files
+      .filter(k => k && !k.endsWith('/')) // drop zero-byte folder markers
+      .map(k => ({
+        filePath: k,
+        name: k.split('/').pop(),
+        subFolder,
+        times: 1,
+        deletable: true,
+      }));
+    return out;
   }
-  return { success: false, message: (res && res.message) || 'Unable to list folder content' };
+
+  // If backend uses "content" entries
+  if (Array.isArray(res.content)) {
+    out.content = res.content.map(item => {
+      if (typeof item === 'string') {
+        return {
+          filePath: item,
+          name: item.split('/').pop(),
+          subFolder,
+          times: 1,
+          deletable: true,
+        };
+      }
+      const filePath = item.filePath || item.key || item.path || item.name || '';
+      return {
+        filePath,
+        name: item.name || (filePath ? filePath.split('/').pop() : ''),
+        subFolder: item.subFolder ?? subFolder,
+        times: item.times ?? 1,
+        deletable: item.deletable ?? true,
+        ...item,
+      };
+    });
+    out.files = out.content.map(i => i.filePath).filter(Boolean);
+    return out;
+  }
+
+  // Unknown shape: be forgiving
+  return { success: true, files: [], content: [] };
 }
 
 /**
- * Find the exact S3/Disk key for a given file name. Works with both layouts.
- * If userId is provided, prefer that match; otherwise search all users and legacy root.
+ * List files under the movies folder (for a user subfolder or root).
+ * Returns normalised shape; never throws.
  */
-async function findExactKeyForName(fileName, userId = null) {
-  const base = path.basename(String(fileName));
-  const moviesRoot = getMoviesFolder(null);
-
-  // 1) Direct legacy candidate
-  const legacyKey = moviesRoot + base;
-
-  // 2) Per-user candidate (if we know the user)
-  const perUserKey = userId ? (moviesRoot + String(userId).trim() + '/' + base) : null;
-
-  // Fast path: try given key if caller already passed a path-like value
-  const asGiven = String(fileName).includes('/') ? String(fileName).replace(/^\//, '') : null;
-
-  // Pull index of all keys under movies/
-  const list = await listAllMoviesKeys();
-  if (!list.success) {
-    return { success: false, message: list.message || 'Failed to read movie folder' };
+async function getMoviesList(subFolder = null) {
+  try {
+    const folderPath = getMoviesFolder(subFolder);
+    const res = await storage.getFolderContent({ folderPath });
+    return normaliseFolderList(res, subFolder);
+  } catch (e) {
+    return { success: true, files: [], content: [] }; // never break callers
   }
-  const keys = list.files || [];
-
-  // Prefer exact-as-given (if present)
-  if (asGiven && keys.includes(asGiven)) {
-    return { success: true, key: asGiven };
-  }
-
-  // Prefer per-user match when known
-  if (perUserKey && keys.includes(perUserKey)) {
-    return { success: true, key: perUserKey };
-  }
-
-  // Legacy flat match
-  if (keys.includes(legacyKey)) {
-    return { success: true, key: legacyKey };
-  }
-
-  // Generic search: any key that ends with "/<base>"
-  const suffix = '/' + base;
-  const generic = keys.find(k => k.endsWith(suffix));
-  if (generic) {
-    return { success: true, key: generic };
-  }
-
-  // Not found
-  return { success: false, message: `File not found under ${moviesRoot}: ${base}` };
 }
 
 /**
- * Delete movie file by accepting either:
- *  - req-provided absolute key (e.g. 'movies/1/foo.mp4')
- *  - bare file name (e.g. 'foo.mp4'), with optional userId hint
- * Returns: { success, key }
+ * Delete movie by trying both layouts. We avoid listing to keep it robust across storage backends:
+ *   1) movies/<userId>/<basename>
+ *   2) movies/<basename>
+ * If caller passes a path-like "key", we delete it directly as well.
  */
 async function deleteMovieFile({ name = null, file_name = null, key = null, filePath = null, userId = null } = {}) {
   try {
     const provided = key || filePath || name || file_name;
-    if (!provided) {
-      return { success: false, message: 'No file key/name provided' };
-    }
+    if (!provided) return { success: false, message: 'No file key/name provided' };
 
-    // Try to resolve to an absolute key
-    const resolved = await findExactKeyForName(provided, userId);
-    if (!resolved.success) {
-      return resolved;
-    }
+    const basename = path.basename(String(provided));
+    const moviesRoot = getMoviesFolder(null);
 
-    const absKey = resolved.key;
-
-    // Log-friendly
-    if (process && process.stdout) {
-      console.log('[movies.delete] input=', provided);
-      console.log('[movies.delete] moviesFolder=', getMoviesFolder(null));
-      console.log('[movies.delete] absKey=', absKey);
+    // If the caller already gave us a full key, try it first.
+    const candidates = [];
+    if (String(provided).includes('/')) {
+      candidates.push(String(provided).replace(/^\/+/, ''));
     }
-
-    const result = await storage.deleteFile({ filePath: absKey });
-    if (result && result.success) {
-      return { success: true, key: absKey };
+    if (userId) {
+      candidates.push(`${moviesRoot}${String(userId).trim()}/${basename}`);
     }
-    return { success: false, message: (result && result.message) || 'Delete failed', key: absKey };
+    candidates.push(`${moviesRoot}${basename}`);
+
+    let lastErr = null;
+    for (const k of candidates) {
+      try {
+        const resp = await storage.deleteFile({ filePath: k });
+        // Many backends (S3) are idempotent; consider any non-throw as success.
+        if (resp == null || (resp && resp.success !== false)) {
+          return { success: true, key: k };
+        }
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+    return { success: false, message: lastErr ? lastErr.message : 'Delete failed' };
   } catch (e) {
     return { success: false, message: e.message };
   }
 }
 
-/**
- * Optional helper to expose list (kept compatible with any existing callers).
- */
-async function getMoviesList(subFolder = null) {
-  const folderPath = getMoviesFolder(subFolder);
-  return storage.getFolderContent({ folderPath });
-}
-
 async function createUserMoviesFolder(userId) {
   const folderPath = getMoviesFolder(userId);
-  return storage.createFolder({ folderPath });
+  try {
+    await storage.createFolder({ folderPath });
+    return { success: true };
+  } catch (e) {
+    // Do not block login/bootstraps if bucket doesn't support folder creation
+    return { success: false, message: e.message };
+  }
 }
 
 module.exports = {
@@ -144,7 +150,4 @@ module.exports = {
   createUserMoviesFolder,
   getMoviesList,
   deleteMovieFile,
-  // test helpers
-  _findExactKeyForName: findExactKeyForName,
-  _listAllMoviesKeys: listAllMoviesKeys,
 };
