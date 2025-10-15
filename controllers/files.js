@@ -10,32 +10,44 @@ function firstNonEmpty(...vals) {
     return undefined;
 }
 
+function decodeMaybe(v) {
+    if (typeof v !== 'string') return v;
+    try {
+        // if header is already plain, decodeURIComponent will throw only on bad sequences
+        return decodeURIComponent(v);
+    } catch {
+        return v;
+    }
+}
+
 function parseUploadRequest(req) {
     // Support JSON body, querystring, or headers (for FormData/edge cases)
     const body = (req && req.body) ? req.body : {};
     const query = (req && req.query) ? req.query : {};
     const hdr = (req && req.headers) ? req.headers : {};
 
-    const fileName = firstNonEmpty(
+    let fileName = firstNonEmpty(
         body.fileName, body.filename, body.name,
         query.fileName, query.filename, query.name,
         hdr['x-file-name'], hdr['x-filename']
     );
+    fileName = decodeMaybe(fileName);
 
-    const subFolderRaw = firstNonEmpty(
+    let subFolderRaw = firstNonEmpty(
         body.subFolder, query.subFolder, hdr['x-sub-folder']
     );
+    subFolderRaw = decodeMaybe(subFolderRaw);
     const subFolder = (subFolderRaw === 'null' || subFolderRaw === 'undefined') ? null : subFolderRaw;
 
-    // Prefer explicit contentType; fall back to header if client passed it there; otherwise default
     const explicitCT = firstNonEmpty(
         body.contentType, body.mimeType,
         query.contentType, query.mimeType,
         hdr['x-content-type']
     );
-    // NOTE: req.headers['content-type'] may be multipart/form-data, which is NOT the file's type.
-    // We only use it if nothing else was provided and it's not a multipart envelope.
-    let contentType = explicitCT;
+    let contentType = explicitCT || '';
+    contentType = decodeMaybe(contentType);
+
+    // Avoid using envelope content-type if it's multipart
     if (!contentType) {
         const hct = hdr['content-type'];
         if (hct && !/^multipart\/form-data/i.test(hct)) {
@@ -52,19 +64,22 @@ function parseFinalizeRequest(req) {
     const query = (req && req.query) ? req.query : {};
     const hdr = (req && req.headers) ? req.headers : {};
 
-    const objectKey = firstNonEmpty(
+    let objectKey = firstNonEmpty(
         body.objectKey, query.objectKey, hdr['x-object-key']
     );
+    objectKey = decodeMaybe(objectKey);
 
-    const fileName = firstNonEmpty(
+    let fileName = firstNonEmpty(
         body.fileName, body.filename, body.name,
         query.fileName, query.filename, query.name,
         hdr['x-file-name'], hdr['x-filename']
     );
+    fileName = decodeMaybe(fileName);
 
-    const subFolderRaw = firstNonEmpty(
+    let subFolderRaw = firstNonEmpty(
         body.subFolder, query.subFolder, hdr['x-sub-folder']
     );
+    subFolderRaw = decodeMaybe(subFolderRaw);
     const subFolder = (subFolderRaw === 'null' || subFolderRaw === 'undefined') ? null : subFolderRaw;
 
     return { objectKey, fileName, subFolder };
