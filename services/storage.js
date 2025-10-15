@@ -1,17 +1,23 @@
+// services/storage.js
 const { envVar } = require('./env');
 
-let storage_class = null;
+function pickDriver() {
+  // Accept several names; default to s3 if bucket vars exist
+  const explicit = (envVar('FILE_STORAGE') || envVar('STORAGE_DRIVER') || envVar('STORAGE_TYPE') || '').toLowerCase();
+  if (explicit) return explicit;
 
-switch (envVar("STORAGE_TYPE")) {
-    case 'AWS_S3':
-        storage_class = require('./storage_aws_s3')
-        break;
-
-    case 'DISK':
-        storage_class = require('./storage_disk')
-        break;
-
+  const hasS3 = !!(envVar('AWS_BUCKET') || envVar('AWS_S3_BUCKET'));
+  return hasS3 ? 'aws_s3' : 'disk';
 }
-const storage = new storage_class();
 
-module.exports = storage
+const driver = pickDriver();
+
+let Adapter;
+if (driver === 'aws_s3' || driver === 's3') {
+  Adapter = require('./storage_aws_s3');
+} else {
+  Adapter = require('./storage_disk');
+}
+
+const storage = new Adapter();
+module.exports = storage;
