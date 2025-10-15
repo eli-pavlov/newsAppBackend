@@ -1,94 +1,163 @@
-const storage_base = require('./storage_base');
-const { envVar } = require('./env');
 const AWS = require('aws-sdk');
+const STORAGE_BASE = require('./storage_base');
+const { envVar } = require('./env');
+const multer = require("multer");
+const fs = require("fs");
 
-class storage_aws_s3 extends storage_base {
+class STORAGE_S3 extends STORAGE_BASE {
     constructor() {
         super();
-        this.bucket = envVar('AWS_BUCKET');
-        this.region = envVar('AWS_REGION');
-        this.moviesFolderName = envVar('MOVIES_FOLDER');
 
-        if (!this.bucket || !this.region || !envVar('AWS_ACCESS_KEY_ID') || !envVar('AWS_SECRET_ACCESS_KEY')) {
-            console.error("AWS S3 environment variables are not fully configured.");
-            return;
-        }
-
-        // Configure AWS SDK v2
-        AWS.config.update({
-            region: this.region,
+        this.s3 = new AWS.S3({
             accessKeyId: envVar('AWS_ACCESS_KEY_ID'),
             secretAccessKey: envVar('AWS_SECRET_ACCESS_KEY'),
+            region: envVar('AWS_REGION')
         });
 
-        this.s3 = new AWS.S3();
+        this.publicUrl = `https://${envVar('AWS_BUCKET')}.s3.${envVar('AWS_REGION')}.amazonaws.com`;
+
+        // memory upload
+        // this.upload = multer({ storage: multer.memoryStorage() });
+
+        // disk upload
+        this.upload = multer({ dest: "uploads/" });
     }
 
-    async getFiles(subFolder = null) {
-        try {
-            const folderPrefix = subFolder
-                ? `${this.moviesFolderName}/${subFolder}/`
-                : `${this.moviesFolderName}/`;
-
-            const params = {
-                Bucket: this.bucket,
-                Prefix: folderPrefix,
-            };
-
-            const response = await this.s3.listObjectsV2(params).promise();
-            if (!response.Contents) {
-                return [];
-            }
-
-            const files = response.Contents
-                .filter(c => !c.Key.endsWith('/')) // Exclude folder objects
-                .map(c => {
-                    const keyParts = c.Key.split('/');
-                    const fileName = keyParts[keyParts.length - 1];
-                    const moviesIndex = keyParts.indexOf(this.moviesFolderName);
-                    
-                    const sub = keyParts.length > moviesIndex + 2 ? keyParts.slice(moviesIndex + 1, -1).join('/') : null;
-
-                    return {
-                        name: fileName,
-                        url: `https://${this.bucket}.s3.${this.region}.amazonaws.com/${c.Key}`,
-                        subFolder: sub,
-                    };
-                });
-
-            return files;
-        } catch (e) {
-            console.error("Error getting files from S3:", e);
-            return [];
-        }
+    filePublicUrl(filePath) {
+        return this.publicUrl + ('/' + filePath).replaceAll('//', '/');
     }
 
-    async deleteFile(fileName, subFolder = null) {
-        // **FIX:** Construct the S3 key using forward slashes `/` explicitly.
-        let key = this.moviesFolderName;
-        if (subFolder) {
-            key += `/${subFolder}`;
-        }
-        key += `/${fileName}`;
+    movieFilePublicUrl(fileName, subFolder = null) {
+        return this.filePublicUrl(fileName);
+    }
 
-        const params = {
-            Bucket: this.bucket,
-            Key: key
+    getActionParams(params, extraData = {}) {
+        let actionParams = {
+            Bucket: params?.bucketName ? params.bucketName : envVar('AWS_BUCKET'),
         };
 
+        return { ...actionParams, ...extraData };
+    }
+
+    async createFolder(params) {
+        const actionParams = this.getActionParams(params, { Key: params.folderPath + '/', Body: '' });  // zero-byte object
+
         try {
-            await this.s3.deleteObject(params).promise();
-            return { success: true, message: `File ${fileName} was deleted successfully.` };
-        } catch (e) {
-            console.error(`Failed to delete S3 object with key "${key}":`, e);
-            return { success: false, message: e.message };
+            await this.s3.putObject(actionParams).promise();
+
+            return { success: true };
+        }
+        catch (err) {
+            return { success: false, message: err.message };
         }
     }
-    
-    // NOTE: uploadFile logic is not included as it wasn't requested for the fix.
+
+    async getFolderContent(params) {
+        const actionParams = this.getActionParams(params, { Prefix: params.folderPath, Delimiter: '/' });  // Delimiter is optional, to get folder-like behavior
+
+        try {
+            const data = await this.s3.listObjectsV2(actionParams).promise();
+
+            // data.Contents is an array of objects representing files
+            const folderContent = data.Contents.map(item => item.Key);
+
+            return { success: true, files: folderContent };
+        }
+        catch (err) {
+            return { success: false, message: err.message };
+        }
+    }
+
+    async deleteFile(params) {
+        const actionParams = this.getActionParams(params, { Key: params.filePath });
+
+        try {
+            await this.s3.deleteObject(actionParams).promise();
+
+            return { success: true };
+        }
+        catch (err) {
+            return { success: false, message: err.message };
+        }
+    }
+
+    // async uploadFileUsingMemory(req, res) {
+    //     return new Promise((resolve, reject) => {
+    //         this.upload.single('file')(req, res, async (e) => {
+    //             if (e) {
+    //                 return reject({ success: false, message: e.message });
+    //             }
+
+    //             try {
+    //                 const params = {
+    //                     Bucket: envVar('AWS_BUCKET'),
+    //                     Key: envVar('MOVIES_FOLDER') + '/' + req.body.subFolder + '/' + req.file.originalname,
+    //                     Body: req.file.buffer,
+    //                     ContentType: req.file.mimetype
+    //                 };
+
+    //                 await this.s3.upload(params).promise();
+
+    //                 return resolve({
+    //                     success: true,
+    //                     message: 'The file was uploaded successfully.',
+    //                     url: this.filePublicUrl(params.Key),
+    //                     file_name: req.file.originalname,
+    //                     subFolder:req.body.subFolder,
+    //                     times:1,
+    //                     deletable: true
+    //                 })
+    //             }
+    //             catch (e) {
+    //                 return reject({ success: false, message: e.message })
+    //             }
+    //         });
+    //     })
+    // }
+
     async uploadFile(req, res) {
-        return { success: false, message: 'S3 server-side upload not implemented in this fix.' };
+        return new Promise((resolve, reject) => {
+            this.upload.single('file')(req, res, async (e) => {
+                if (e) {
+                    return reject({ success: false, message: e.message });
+                }
+
+                try {
+                    const fileStream = fs.createReadStream(req.file.path);
+
+                    const params = {
+                        Bucket: envVar('AWS_BUCKET'),
+                        Key: envVar('MOVIES_FOLDER') + '/' + req.body.subFolder + '/' + req.file.originalname,
+                        // Body: req.file.buffer, : memory upload
+                        Body: fileStream,
+                        ContentType: req.file.mimetype
+                    };
+
+                    await this.s3.upload(params).promise();
+
+                    return resolve({
+                        success: true,
+                        message: 'The file was uploaded successfully.',
+                        url: this.filePublicUrl(params.Key),
+                        file_name: req.file.originalname,
+                        subFolder: req.body.subFolder,
+                        times: 1,
+                        deletable: true
+                    })
+                }
+                catch (e) {
+                    return reject({ success: false, message: e.message })
+                }
+                finally {
+                    fs.unlink(req.file.path, (err) => {
+                        if (err) {
+                            console.error("Failed to remove file: " + req.file.path, err);
+                        }
+                    });
+                }
+            });
+        })
     }
 }
 
-module.exports = new storage_aws_s3();
+module.exports = STORAGE_S3
