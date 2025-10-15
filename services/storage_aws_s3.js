@@ -108,10 +108,13 @@ class AwsS3Storage {
       stream,
       file,
       contentType,
-      acl
+      acl,
+      base64,          // NEW: allow base64 payload
+      fileBase64,      // NEW: alternate field names
+      contentBase64
     } = args;
 
-    // derive from typical upload objects
+    // derive from common upload objects
     if (file && !body && !buffer && !stream) {
       if (file.buffer) buffer = file.buffer;               // multer
       else if (file.data) buffer = file.data;              // express-fileupload
@@ -123,10 +126,31 @@ class AwsS3Storage {
       if (!contentType) contentType = file.mimetype;
     }
 
+    // accept base64 strings
+    const b64 = base64 || fileBase64 || contentBase64 || (typeof body === 'string' ? body : null);
+    if (!buffer && !stream && typeof b64 === 'string') {
+      const comma = b64.indexOf(',');
+      const b64data = comma >= 0 ? b64.slice(comma + 1) : b64;
+      try {
+        buffer = Buffer.from(b64data, 'base64');
+        body = buffer;
+        if (!contentType && b64.startsWith('data:')) {
+          const semi = b64.indexOf(';');
+          contentType = b64.slice(5, semi > 0 ? semi : undefined);
+        }
+      } catch (_) { /* ignore bad base64 */ }
+    }
+
     if (!body && buffer) body = buffer;
-    if (!body && stream) body = stream;
-    if (!body) throw new Error('uploadFile: no body/buffer/stream provided');
-    if (!fileName && !filePath) throw new Error('uploadFile: fileName or filePath required');
+
+    // Graceful no-op: don’t throw if the endpoint is called with no file
+    if (!body && !stream) {
+      return { success: false, message: 'No file content provided' };
+    }
+    if (!fileName && !filePath) {
+      // pick a harmless default to avoid throw
+      fileName = `upload-${Date.now()}.bin`;
+    }
 
     let Key;
     if (filePath) {
@@ -143,10 +167,9 @@ class AwsS3Storage {
       Body: body,
       ContentType: contentType || 'application/octet-stream'
     };
-    if (acl) params.ACL = acl; // e.g., 'public-read'
+    if (acl) params.ACL = acl;
 
     await this.s3.putObject(params).promise();
-
     return { success: true, key: Key, url: this.movieFilePublicUrl(Key) };
   }
 }

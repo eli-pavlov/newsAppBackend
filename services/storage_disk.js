@@ -71,7 +71,7 @@ class DiskStorage {
   }
 
   async uploadFile(args = {}) {
-    let { folderPath, filePath, fileName, body, buffer, stream, file } = args;
+    let { folderPath, filePath, fileName, body, buffer, stream, file, base64, fileBase64, contentBase64 } = args;
 
     if (file && !body && !buffer && !stream) {
       if (file.buffer) buffer = file.buffer;
@@ -82,9 +82,19 @@ class DiskStorage {
       if (!fileName) fileName = file.originalname || file.name;
     }
 
+    const b64 = base64 || fileBase64 || contentBase64 || (typeof body === 'string' ? body : null);
+    if (!buffer && !stream && typeof b64 === 'string') {
+      const comma = b64.indexOf(',');
+      const b64data = comma >= 0 ? b64.slice(comma + 1) : b64;
+      try { buffer = Buffer.from(b64data, 'base64'); } catch (_) {}
+    }
+
     if (!body && buffer) body = buffer;
-    if (!body && !stream) throw new Error('uploadFile: no body/buffer/stream provided');
-    if (!fileName && !filePath) throw new Error('uploadFile: fileName or filePath required');
+
+    if (!body && !stream) {
+      return { success: false, message: 'No file content provided' };
+    }
+    if (!fileName && !filePath) fileName = `upload-${Date.now()}.bin`;
 
     let abs;
     if (filePath) {
