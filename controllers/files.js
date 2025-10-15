@@ -59,6 +59,12 @@ function parseFinalizeRequest(req) {
 class filesController {
     constructor() {
         this._s3 = null;
+
+        // 🔧 bind handlers so `this` is preserved when Express calls them
+        this.upload   = this.upload.bind(this);
+        this.delete   = this.delete.bind(this);
+        this.presign  = this.presign.bind(this);
+        this.finalize = this.finalize.bind(this);
     }
 
     s3() {
@@ -72,6 +78,7 @@ class filesController {
         return this._s3;
     }
 
+    // Legacy upload (kept for DISK mode)
     async upload(req, res) {
         try {
             const result = await storage.uploadFile(req, res);
