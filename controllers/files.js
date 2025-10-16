@@ -1,8 +1,24 @@
-const AWS = require('aws-sdk');
-const { envVar } = require('../services/env');
-const { deleteMovieFile } = require('../services/movies');
-const storage = require('../services/storage');
+// Backend — controllers/files.js
+//
+// Files Controller
+// Implements handlers for file routes: legacy upload/delete and new S3 presign/finalize.
+// Uses tolerant input parsing from body, query, or headers.
+// Ensures compatibility with different storage types (S3 or disk).
+//
+// Helpers:
+// - firstNonEmpty: Selects first valid value.
+// - decodeMaybe: Decodes URL-encoded strings safely.
+// - parseUploadRequest: Extracts params for presign.
+// - parseFinalizeRequest: Extracts params for finalize.
 
+const AWS = require('aws-sdk');                        // AWS SDK for S3.
+const { envVar } = require('../services/env');         // Environment variable access.
+const { deleteMovieFile } = require('../services/movies'); // Delete logic from movies service.
+const storage = require('../services/storage');        // Legacy storage handler.
+
+/**
+ * firstNonEmpty: Returns the first non-empty value from arguments.
+ */
 function firstNonEmpty(...vals) {
     for (const v of vals) {
         if (v !== undefined && v !== null && String(v).trim() !== '') return v;
@@ -10,11 +26,18 @@ function firstNonEmpty(...vals) {
     return undefined;
 }
 
+/**
+ * decodeMaybe: Decodes URI components if possible.
+ */
 function decodeMaybe(v) {
     if (typeof v !== 'string') return v;
     try { return decodeURIComponent(v); } catch { return v; }
 }
 
+/**
+ * parseUploadRequest: Parses fileName, subFolder, contentType from request.
+ * Sources: body, query, headers. Applies defaults.
+ */
 function parseUploadRequest(req) {
     const body = (req && req.body) ? req.body : {};
     const query = (req && req.query) ? req.query : {};
@@ -38,6 +61,9 @@ function parseUploadRequest(req) {
     return { fileName, subFolder, contentType };
 }
 
+/**
+ * parseFinalizeRequest: Parses objectKey, fileName, subFolder for finalize.
+ */
 function parseFinalizeRequest(req) {
     const body = (req && req.body) ? req.body : {};
     const query = (req && req.query) ? req.query : {};
@@ -56,17 +82,19 @@ function parseFinalizeRequest(req) {
     return { objectKey, fileName, subFolder };
 }
 
+// Controller class with S3 client and bound handlers.
 class filesController {
     constructor() {
-        this._s3 = null;
+        this._s3 = null; // Lazy-initialized S3 client.
 
-        // 🔧 bind handlers so `this` is preserved when Express calls them
+        // Bind methods to preserve 'this' in Express.
         this.upload   = this.upload.bind(this);
         this.delete   = this.delete.bind(this);
         this.presign  = this.presign.bind(this);
         this.finalize = this.finalize.bind(this);
     }
 
+    // Lazy load S3 client using environment credentials.
     s3() {
         if (!this._s3) {
             this._s3 = new AWS.S3({
@@ -78,7 +106,7 @@ class filesController {
         return this._s3;
     }
 
-    // Legacy upload (kept for DISK mode)
+    // Legacy upload: Server processes the file upload.
     async upload(req, res) {
         try {
             const result = await storage.uploadFile(req, res);
@@ -89,6 +117,7 @@ class filesController {
         }
     }
 
+    // Delete file using movie service.
     async delete(req, res) {
         try {
             const { fileName, subFolder=null } = req.body || {};
@@ -100,6 +129,7 @@ class filesController {
         }
     }
 
+    // Presign: Generate signed PUT URL for S3 (requires STORAGE_TYPE=AWS_S3).
     async presign(req, res) {
         try {
             const storageType = envVar('STORAGE_TYPE');
@@ -121,7 +151,7 @@ class filesController {
                 Bucket: bucket,
                 Key: key,
                 ContentType: contentType,
-                Expires: 900,
+                Expires: 900, // 15 minutes.
             });
             const publicUrl = `https://${bucket}.s3.${region}.amazonaws.com/${key}`;
 
@@ -139,6 +169,7 @@ class filesController {
         }
     }
 
+    // Finalize: Verify S3 object after upload (HEAD request).
     async finalize(req, res) {
         try {
             const storageType = envVar('STORAGE_TYPE');
@@ -164,7 +195,7 @@ class filesController {
             return res.status(200).json({
                 success: true,
                 url: publicUrl,
-                file_name: fileName || (objectKey.split('/').pop()),
+                file_name: fileName || (objectKey.split('/').pop() ),
                 subFolder: subFolder ?? null
             });
         } catch (e) {
@@ -175,4 +206,5 @@ class filesController {
     }
 }
 
+// Export singleton instance.
 module.exports = new filesController();
